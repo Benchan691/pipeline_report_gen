@@ -6,12 +6,12 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 
-from export_vuln_ids import (
+from pipeline.config import load_config
+from pipeline.vuln_match import (
     cap_per_cluster,
     doc_date,
     docs_for,
     first_match,
-    load_config,
     mark_match,
     norm_id,
     norm_severity,

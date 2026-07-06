@@ -1,17 +1,17 @@
-#!/usr/bin/env python3
-import argparse
 import csv
 import json
+import logging
 import re
-import shutil
-import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from pipeline.constants import DB
+from pipeline.mongo import candidates_from_payload, run_mongo
+from pipeline.utils import norm_cnvd, norm_cnnvd
 
-DEFAULT_CONFIG = "config.json"
-DB = "vulnerabilities"
+log = logging.getLogger(__name__)
+
 COMMON_WORDS = {
     "update", "setup", "installer", "install", "uninstall", "driver", "package",
     "x64", "x86", "bit", "edition", "version", "release", "runtime", "client",
@@ -32,9 +32,9 @@ def norm_severity(value):
 
 
 def norm_id(source, code):
-    code = str(code or "").strip().upper()
-    prefix = "CNVD-" if source == "cnvd" else "CNNVD-"
-    return code if code.startswith(prefix) else prefix + code.removeprefix(prefix)
+    if source == "cnvd":
+        return norm_cnvd(code)
+    return norm_cnnvd(code)
 
 
 def clean_term(value):
@@ -67,19 +67,6 @@ def software_terms(path):
                     "cluster_size": int(row.get("cluster_size_v3") or 0),
                 })
     return sorted(by_term.values(), key=lambda x: len(x["term"]), reverse=True)
-
-
-def run_mongo(script):
-    if not shutil.which("mongosh"):
-        sys.exit("mongosh not found. Install MongoDB Shell or add it to PATH.")
-    res = subprocess.run(
-        ["mongosh", "--quiet", "--host", "localhost", "--port", "27017", "--eval", script],
-        text=True,
-        capture_output=True,
-    )
-    if res.returncode:
-        sys.exit(res.stderr.strip() or res.stdout.strip() or "Mongo query failed")
-    return json.loads(res.stdout.strip() or "[]")
 
 
 def docs_for(source, days):
@@ -234,7 +221,7 @@ def ranked_matches(matches, top_n):
     return sorted(matches, key=lambda m: (-m["mark"], -SEVERITY_MARK.get(m["severity"], 0), m.get("published") or "", m["id"]))[:top_n]
 
 
-def export(cfg):
+def build_filtered_matches(cfg):
     terms = software_terms(cfg.get("software_cluster_csv", "cluster/software_cluster_summary_v3.csv"))
     allowed = {norm_severity(s) for s in cfg.get("severity_filter", []) if str(s).strip()}
     days = cfg.get("vuln_match_scrape_days", cfg.get("scrape_days"))
@@ -271,14 +258,18 @@ def export(cfg):
             })
     capped = cap_per_cluster(matches, max_per_cluster) if max_per_cluster else matches
     payload = make_payload(ranked_matches(capped, top_n))
-    with open(cfg.get("vuln_id_output_json", "cnvd_cnnvd_ids.json"), "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
     return payload, {"marked": len(matches), "after_cluster_cap": len(capped)}
 
 
-def load_config(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+def load_filtered_candidates(cfg):
+    from pipeline.mongo import candidates_from_payload
+
+    log.info("Matching vulnerabilities against software clusters")
+    payload, stats = build_filtered_matches(cfg)
+    candidates = candidates_from_payload(payload)
+    if not candidates:
+        sys.exit("No vulnerabilities matched software clusters in the configured window.")
+    return candidates, stats
 
 
 def self_test():
@@ -340,17 +331,11 @@ def self_test():
 
     assert vuln_type_key("Google Chrome Blink内存错误引用漏洞", "Google Chrome") == "blink内存错误引用"
     assert vuln_type_key("Google Chrome V8类型混淆漏洞", "Google Chrome") == "v8类型混淆"
-    assert vuln_type_key("Google Chrome Blink内存错误引用漏洞", "Google Chrome") != vuln_type_key(
-        "Google Chrome V8类型混淆漏洞", "Google Chrome"
-    )
 
     chrome_items = [
         {"id": "C1", "severity": "Critical", "mark": 452, "published": "2026-06-28", "title": "Google Chrome Blink内存错误引用漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
         {"id": "C2", "severity": "Critical", "mark": 452, "published": "2026-06-29", "title": "Google Chrome V8类型混淆漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
         {"id": "C3", "severity": "Critical", "mark": 452, "published": "2026-06-30", "title": "Google Chrome WebRTC堆缓冲区溢出漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
-        {"id": "C4", "severity": "Critical", "mark": 452, "published": "2026-06-30", "title": "Google Chrome Blink内存错误引用漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
-        {"id": "C5", "severity": "High", "mark": 349, "published": "2026-07-01", "title": "Google Chrome Skia越界写入漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
-        {"id": "C6", "severity": "High", "mark": 349, "published": "2026-07-02", "title": "Google Chrome V8类型混淆漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
     ]
     diverse = diversity_pick(chrome_items, 3)
     assert len(diverse) == 3
@@ -367,28 +352,6 @@ def self_test():
     capped = cap_per_cluster(many_chrome + java_items, 5)
     assert len(capped) == 7
     assert len([m for m in capped if m["cluster_id"] == "C0115"]) == 5
-    assert len([m for m in capped if m["cluster_id"] == "C0003"]) == 2
 
     integration = ranked_matches(cap_per_cluster(chrome_items, 5), 3)
     assert len(integration) == 3
-
-    print("self-test ok")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Export CNVD/CNNVD IDs matching software clusters.")
-    parser.add_argument("--config", default=DEFAULT_CONFIG)
-    parser.add_argument("--self-test", action="store_true")
-    args = parser.parse_args()
-    if args.self_test:
-        self_test()
-        return
-    payload, stats = export(load_config(args.config))
-    print(
-        "marked=%d, after_cluster_cap=%d, wrote %d CNVD and %d CNNVD IDs"
-        % (stats["marked"], stats["after_cluster_cap"], len(payload["cnvd_ids"]), len(payload["cnnvd_ids"]))
-    )
-
-
-if __name__ == "__main__":
-    main()

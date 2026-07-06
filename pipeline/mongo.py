@@ -198,12 +198,10 @@ print(JSON.stringify(docs));
     return docs_to_cnnvd_candidates([by_id[i] for i in cnnvd_ids])
 
 
-def query_filtered_vulns(path):
-    with open(path, encoding="utf-8") as f:
-        payload = json.load(f)
+def candidates_from_payload(payload):
     matches = payload.get("matches") or []
     if not matches:
-        sys.exit(f"No matches found in {path}; run export_vuln_ids.py first.")
+        return []
     by_source = {"cnvd": [], "cnnvd": []}
     for match in matches:
         source = match.get("source")
@@ -225,3 +223,12 @@ def query_filtered_vulns(path):
             candidate["matched_software"] = match.get("matched_software") or ""
             ordered.append(candidate)
     return ordered
+
+
+def query_filtered_vulns(path):
+    with open(path, encoding="utf-8") as f:
+        payload = json.load(f)
+    candidates = candidates_from_payload(payload)
+    if not candidates:
+        sys.exit(f"No matches found in {path}; run cnvd_docx.py to refresh the shortlist.")
+    return candidates

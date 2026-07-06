@@ -5,7 +5,6 @@ import sys
 import tempfile
 from datetime import datetime
 
-from export_vuln_ids import export as export_vuln_id_list
 from pipeline.config import load_config, normalize_search_provider
 from pipeline.constants import DEFAULT_CONFIG
 from pipeline.dependencies import check_dependencies, setup_logging
@@ -19,7 +18,8 @@ from pipeline.evidence import (
 from pipeline.excel_report import build_excel, build_weekly_excel
 from pipeline.formatting import category, excel_row, weekly_row, word_rows
 from pipeline.mailer import require_email_config, send_report_email
-from pipeline.mongo import candidate_from_cnnvd_doc, query_filtered_vulns, query_cnvd, query_cnvd_by_scrape_days
+from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
+from pipeline.vuln_match import load_filtered_candidates, self_test as vuln_match_self_test
 from pipeline.output import apply_dated_output_path, apply_dated_output_paths, apply_run_output_paths, report_date_prefix
 from pipeline import search as search_mod
 from pipeline.search import parse_firecrawl_results, queries_for_candidate, web_search
@@ -136,6 +136,7 @@ def self_test():
         )
     assert sent["message"]["To"] == "receiver@example.com"
     assert len(list(sent["message"].iter_attachments())) == 3
+    vuln_match_self_test()
     print("self-test ok")
 
 
@@ -143,11 +144,6 @@ def main():
     parser = argparse.ArgumentParser(description="Generate CNVD-first evidence-card DOCX and XLSX reports.")
     parser.add_argument("--config", default=DEFAULT_CONFIG, help="config JSON path")
     parser.add_argument("--self-test", action="store_true", help="run local assertions without MongoDB, SearXNG, or AI")
-    parser.add_argument(
-        "--skip-vuln-export",
-        action="store_true",
-        help="skip refreshing cnvd_cnnvd_ids.json (use existing shortlist)",
-    )
     args = parser.parse_args()
     if args.self_test:
         self_test()
@@ -171,17 +167,13 @@ def main():
     )
 
     if cfg.get("use_filtered_vuln_ids"):
-        if cfg.get("auto_export_vuln_ids", True) and not args.skip_vuln_export:
-            log.info("Exporting filtered CNVD/CNNVD shortlist -> %s", cfg["vuln_id_output_json"])
-            payload, stats = export_vuln_id_list(cfg)
-            log.info(
-                "Shortlist: marked=%d, after_cluster_cap=%d, cnvd=%d, cnnvd=%d",
-                stats["marked"],
-                stats["after_cluster_cap"],
-                len(payload["cnvd_ids"]),
-                len(payload["cnnvd_ids"]),
-            )
-        candidates = query_filtered_vulns(cfg["vuln_id_output_json"])
+        candidates, stats = load_filtered_candidates(cfg)
+        log.info(
+            "Shortlist: marked=%d, after_cluster_cap=%d, selected=%d",
+            stats["marked"],
+            stats["after_cluster_cap"],
+            len(candidates),
+        )
     elif cfg.get("cnvd_ids"):
         candidates = query_cnvd(cfg["cnvd_ids"])
     else:

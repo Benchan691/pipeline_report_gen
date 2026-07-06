@@ -2,7 +2,7 @@
 
 Pipeline:
 
-1. Match CNVD/CNNVD records against installed-software clusters and build a ranked shortlist (`cnvd_cnnvd_ids.json`) when `use_filtered_vuln_ids` is true.
+1. Match CNVD/CNNVD records against installed-software clusters and pass the ranked shortlist directly to search when `use_filtered_vuln_ids` is true.
 2. Load matched records from local MongoDB.
 3. Search SearXNG or Firecrawl by related CVE, or by CNVD ID when no CVE exists.
 4. Extract evidence cards with llama-server.
@@ -55,24 +55,16 @@ To regenerate reports from an existing evidence JSON without new web/AI extracti
 
 ## Usage
 
-One command runs the full workflow (shortlist export + report generation):
+One command runs the full workflow (cluster matching + report generation):
 
 ```bash
 .venv/bin/python cnvd_docx.py --config config.json
 ```
 
-To reuse an existing `cnvd_cnnvd_ids.json` without re-scanning MongoDB:
+Optional funnel debug dump:
 
 ```bash
-.venv/bin/python cnvd_docx.py --config config.json --skip-vuln-export
-```
-
-Or set `"auto_export_vuln_ids": false` in `config.json`.
-
-You can still run the shortlist step alone:
-
-```bash
-python3 export_vuln_ids.py --config config.json
+python3 export_vuln_funnel_details.py --config config.json
 ```
 
 Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx`).
@@ -81,6 +73,7 @@ Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-
 
 - [`cnvd_docx.py`](cnvd_docx.py) — CLI entry point
 - [`pipeline/cli.py`](pipeline/cli.py) — orchestration and self-test
+- [`pipeline/vuln_match.py`](pipeline/vuln_match.py) — software-cluster matching and shortlist
 - [`pipeline/mongo.py`](pipeline/mongo.py) — MongoDB queries and candidates
 - [`pipeline/search.py`](pipeline/search.py) — SearXNG / Firecrawl search
 - [`pipeline/evidence.py`](pipeline/evidence.py) — AI extraction and evidence JSON
