@@ -1,0 +1,16 @@
+config.json
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+~$*
+
+# Generated outputs and runtime data
+output/
+cnvd_evidence_cards.json
+cnvd_cnnvd_ids.json
+vuln_match_funnel_details.json
+*.docx
+*.xlsx
+!templates/*.docx
+!templates/*.xlsx

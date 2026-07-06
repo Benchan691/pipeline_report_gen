@@ -1,0 +1,73 @@
+# CNVD Evidence-Card DOCX + XLSX Generator
+
+Pipeline:
+
+1. Load CNVD records from local MongoDB.
+2. Search SearXNG or Firecrawl by related CVE, or by CNVD ID when no CVE exists.
+3. Extract evidence cards with llama-server.
+4. Save `cnvd_evidence_cards.json`.
+5. Fill the Word and Excel templates.
+
+Templates live in `templates/`. Each run writes three files based on the basename paths in `config.json` (for example `周報.docx`, `周報.xlsx`, `本周重要漏洞实例情况.xlsx`). When `output_date_prefix` is true (default), filenames are auto-prefixed with the report publish-date range, e.g. `2026.06.30-07.06_周報.docx`.
+
+`report.xlsx` keeps `影响资产` empty and fills `影响产品` / `影响版本` from CNVD plus AI evidence. `weekly_disclosure.xlsx` leaves `是否涉及` empty for human review.
+
+## Requirements
+
+- `mongosh` in `PATH`
+- SearXNG JSON search API, default `http://localhost:8086`
+- Firecrawl API key when using Firecrawl or SearXNG fallback
+- llama-server, default `http://100.102.169.17:8080`
+- Python with `python-docx` and `openpyxl`
+
+```bash
+PY=/Users/chankokpan/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3
+$PY cnvd_docx.py --self-test
+```
+
+## Config
+
+Edit `config.json` (copy from [`config.example.json`](config.example.json)):
+
+```json
+{
+  "scrape_days": 7,
+  "search_provider": "searxng",
+  "searxng_base_url": "http://localhost:8086",
+  "firecrawl_api_key": "fc-...",
+  "evidence_json": "cnvd_evidence_cards.json",
+  "output_docx": "report.docx",
+  "output_excel": "report.xlsx",
+  "output_weekly_excel": "weekly_disclosure.xlsx"
+}
+```
+
+Set `"search_provider": "firecrawl"` to use Firecrawl directly. With SearXNG as the provider, Firecrawl is used as a fallback when SearXNG returns no usable results and `firecrawl_api_key` is configured.
+
+`scrape_days` loads every CNVD in MongoDB whose `scraped_at` falls within the last N days. You can still pass an explicit `cnvd_ids` list instead to override the window query.
+
+To regenerate reports from an existing evidence JSON without new web/AI extraction:
+
+```json
+"use_existing_evidence_json": true
+```
+
+## Usage
+
+```bash
+$python cnvd_docx.py --config config.json
+```
+
+Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx`).
+
+## Layout
+
+- [`cnvd_docx.py`](cnvd_docx.py) — CLI entry point
+- [`pipeline/cli.py`](pipeline/cli.py) — orchestration and self-test
+- [`pipeline/mongo.py`](pipeline/mongo.py) — MongoDB queries and candidates
+- [`pipeline/search.py`](pipeline/search.py) — SearXNG / Firecrawl search
+- [`pipeline/evidence.py`](pipeline/evidence.py) — AI extraction and evidence JSON
+- [`pipeline/formatting.py`](pipeline/formatting.py) — card text helpers for reports
+- [`pipeline/output.py`](pipeline/output.py) — dated output paths and title dates
+- [`pipeline/docx_report.py`](pipeline/docx_report.py) — Word report builder
+- [`pipeline/excel_report.py`](pipeline/excel_report.py) — Excel report builders
