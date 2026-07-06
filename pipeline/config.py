@@ -39,6 +39,7 @@ def load_config(path):
     cfg.setdefault("results_per_task", 1)
     cfg.setdefault("use_existing_evidence_json", False)
     cfg.setdefault("use_filtered_vuln_ids", False)
+    cfg.setdefault("auto_export_vuln_ids", True)
     cfg.setdefault("vuln_id_output_json", "cnvd_cnnvd_ids.json")
     cfg.setdefault("output_date_prefix", True)
     cfg.setdefault("output_root", "output")

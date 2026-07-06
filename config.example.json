@@ -20,6 +20,7 @@
   "evidence_json": "cnvd_evidence_cards.json",
   "use_existing_evidence_json": false,
   "use_filtered_vuln_ids": true,
+  "auto_export_vuln_ids": true,
   "software_cluster_csv": "cluster/software_cluster_summary_v3.csv",
   "vuln_id_output_json": "cnvd_cnnvd_ids.json",
   "vuln_match_top_n": 30,

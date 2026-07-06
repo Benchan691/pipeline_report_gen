@@ -2,11 +2,12 @@
 
 Pipeline:
 
-1. Load CNVD records from local MongoDB.
-2. Search SearXNG or Firecrawl by related CVE, or by CNVD ID when no CVE exists.
-3. Extract evidence cards with llama-server.
-4. Save `cnvd_evidence_cards.json`.
-5. Fill the Word and Excel templates.
+1. Match CNVD/CNNVD records against installed-software clusters and build a ranked shortlist (`cnvd_cnnvd_ids.json`) when `use_filtered_vuln_ids` is true.
+2. Load matched records from local MongoDB.
+3. Search SearXNG or Firecrawl by related CVE, or by CNVD ID when no CVE exists.
+4. Extract evidence cards with llama-server.
+5. Save `cnvd_evidence_cards.json`.
+6. Fill the Word and Excel templates and email the outputs.
 
 Templates live in `templates/`. Each run writes three files based on the basename paths in `config.json` (for example `周報.docx`, `周報.xlsx`, `本周重要漏洞实例情况.xlsx`). When `output_date_prefix` is true (default), filenames are auto-prefixed with the report publish-date range, e.g. `2026.06.30-07.06_周報.docx`.
 
@@ -54,8 +55,24 @@ To regenerate reports from an existing evidence JSON without new web/AI extracti
 
 ## Usage
 
+One command runs the full workflow (shortlist export + report generation):
+
 ```bash
-$python cnvd_docx.py --config config.json
+.venv/bin/python cnvd_docx.py --config config.json
+```
+
+To reuse an existing `cnvd_cnnvd_ids.json` without re-scanning MongoDB:
+
+```bash
+.venv/bin/python cnvd_docx.py --config config.json --skip-vuln-export
+```
+
+Or set `"auto_export_vuln_ids": false` in `config.json`.
+
+You can still run the shortlist step alone:
+
+```bash
+python3 export_vuln_ids.py --config config.json
 ```
 
 Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx`).
