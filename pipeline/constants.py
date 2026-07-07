@@ -1,5 +1,7 @@
 DB = "vulnerabilities"
 DEFAULT_CONFIG = "config.json"
+REPORT_LANGS = ("zh", "en")
+DEFAULT_REPORT_LANG = "zh"
 CONFIDENCE = {"high": 3, "medium": 2, "low": 1}
 TASK_TYPES = ("what_happened", "why_matters", "how_to_respond")
 EVIDENCE_KEYS = [

@@ -30,6 +30,20 @@ def apply_dated_output_path(prefix, filename):
     return f"{prefix}_{stem}{ext}"
 
 
+def docx_path_for_lang(base_path, lang):
+    if lang == "zh":
+        return base_path
+    stem, ext = os.path.splitext(base_path)
+    if stem.endswith("_en"):
+        return base_path
+    return f"{stem}_en{ext}"
+
+
+def sync_docx_output_paths(cfg):
+    if cfg.get("output_docx"):
+        cfg["output_docx_en"] = docx_path_for_lang(cfg["output_docx"], "en")
+
+
 def create_run_output_dir(root, now=None):
     now = now or datetime.now()
     path = os.path.join(root or "output", now.strftime("%Y%m%d_%H%M%S"))
@@ -44,6 +58,7 @@ def apply_dated_output_paths(cfg, cards):
     for key in ("output_docx", "output_excel", "output_weekly_excel"):
         if cfg.get(key):
             cfg[key] = apply_dated_output_path(prefix, cfg[key])
+    sync_docx_output_paths(cfg)
 
 
 def apply_run_output_paths(cfg, cards, now=None):
@@ -52,6 +67,7 @@ def apply_run_output_paths(cfg, cards, now=None):
     for key in ("output_docx", "output_excel", "output_weekly_excel"):
         if cfg.get(key):
             cfg[key] = os.path.join(output_dir, os.path.basename(cfg[key]))
+    sync_docx_output_paths(cfg)
     cfg["output_dir"] = output_dir
     return output_dir
 
@@ -63,6 +79,57 @@ def title_date(cards, lang):
         return datetime.now().strftime(locale["title_fallback"])
     start, end = dates[0], dates[-1]
     return locale["title_range"].format(y1=start[:4], m1=start[5:7], d1=start[8:10], m2=end[5:7], d2=end[8:10])
+
+
+def _format_zh_date(value):
+    dt = datetime.strptime(value, "%Y-%m-%d")
+    return f"{dt.year}年{dt.month}月{dt.day}日"
+
+
+def _format_zh_date_range(start, end=None):
+    if not end or start == end:
+        return _format_zh_date(start)
+    start_dt = datetime.strptime(start, "%Y-%m-%d")
+    end_dt = datetime.strptime(end, "%Y-%m-%d")
+    if start_dt.year == end_dt.year:
+        return f"{start_dt.year}年{start_dt.month}月{start_dt.day}日-{end_dt.month}月{end_dt.day}日"
+    return f"{start_dt.year}年{start_dt.month}月{start_dt.day}日-{end_dt.year}年{end_dt.month}月{end_dt.day}日"
+
+
+def email_date_range(cards):
+    dates = card_publish_dates(cards)
+    if not dates:
+        return _format_zh_date(datetime.now().strftime("%Y-%m-%d"))
+    start, end = dates[0], dates[-1]
+    return _format_zh_date_range(start, end)
+
+
+def email_date_range_from_paths(paths, folder=None):
+    for path in paths:
+        stem, _ = os.path.splitext(os.path.basename(path))
+        if "_" not in stem:
+            continue
+        prefix = stem.split("_", 1)[0]
+        if len(prefix) < 10 or prefix[4] != "." or prefix[7] != ".":
+            continue
+        try:
+            start = f"{prefix[:4]}-{prefix[5:7]}-{prefix[8:10]}"
+            suffix = prefix[10:]
+            if suffix.startswith("-") and len(suffix) >= 6:
+                end = f"{prefix[:4]}-{suffix[1:3]}-{suffix[4:6]}"
+                return _format_zh_date_range(start, end)
+            return _format_zh_date_range(start)
+        except ValueError:
+            continue
+    if folder:
+        return os.path.basename(folder)
+    return _format_zh_date(datetime.now().strftime("%Y-%m-%d"))
+
+
+def build_email_subject(cfg, cards=None, paths=None, folder=None):
+    title = str(cfg.get("email_title") or "報告").strip()
+    date_range = email_date_range(cards) if cards else email_date_range_from_paths(paths or [], folder)
+    return f"{date_range}{title}"
 
 
 def resolve_output_folder(cfg, folder_path):
@@ -96,12 +163,4 @@ def list_report_paths(folder):
 
 
 def email_subject_from_paths(paths, folder=None):
-    for path in paths:
-        stem, _ = os.path.splitext(os.path.basename(path))
-        if "_" in stem:
-            prefix = stem.split("_", 1)[0]
-            if len(prefix) >= 10 and prefix[4] == "." and prefix[7] == ".":
-                return f"CNVD report files: {prefix}"
-    if folder:
-        return f"CNVD report files: {os.path.basename(folder)}"
-    return "CNVD report files"
+    return build_email_subject({}, paths=paths, folder=folder)

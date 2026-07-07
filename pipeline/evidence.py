@@ -5,7 +5,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from pipeline.constants import CONFIDENCE, EVIDENCE_KEYS
+from pipeline.constants import CONFIDENCE, EVIDENCE_KEYS, DEFAULT_REPORT_LANG, REPORT_LANGS
 from pipeline.utils import short_url, unique
 
 log = logging.getLogger(__name__)
@@ -75,10 +75,9 @@ def normalize_card(raw, result, candidate):
     return card
 
 
-def evidence_prompt(result, candidate, lang):
-    language = "Simplified Chinese" if lang == "zh" else "English"
+def evidence_prompt(result, candidate):
     system = (
-        f"Extract cybersecurity evidence in {language}. Use only the supplied search result. "
+        "Extract cybersecurity evidence in Simplified Chinese. Use only the supplied search result. "
         "Return one strict JSON object only. If a field is unsupported, use empty string, empty array, or null. "
         "confidence must be high, medium, or low."
     )
@@ -87,6 +86,22 @@ def evidence_prompt(result, candidate, lang):
         "task_type": result["task_type"],
         "candidate": {k: candidate.get(k) for k in ("cnvd_id", "cve_id", "search_id", "title", "severity", "summary")},
         "source": {k: result.get(k) for k in ("url", "title", "snippet", "page_content")},
+    }
+    return system, json.dumps(user, ensure_ascii=False)
+
+
+def translation_prompt(card):
+    system = (
+        "Translate the supplied cybersecurity report fields from Simplified Chinese to English. "
+        "Preserve technical identifiers, version strings, and vulnerability terminology. "
+        "Return one strict JSON object only with translated string values for title, what_happened, why_matters, and how_to_respond. "
+        "If a field is empty, return an empty string."
+    )
+    user = {
+        "title": card.get("title") or "",
+        "what_happened": card.get("what_happened") or "",
+        "why_matters": card.get("why_matters") or "",
+        "how_to_respond": card.get("how_to_respond") or "",
     }
     return system, json.dumps(user, ensure_ascii=False)
 
@@ -106,7 +121,7 @@ def extract_evidence_cards(candidates, results, cfg):
             result["task_type"],
             short_url(result.get("url")),
         )
-        system, user = evidence_prompt(result, candidate, cfg["lang"])
+        system, user = evidence_prompt(result, candidate)
         text = call_ai(cfg["ai_base_url"], cfg["ai_model"], system, user)
         try:
             raw = extract_json(text)
@@ -120,12 +135,63 @@ def extract_evidence_cards(candidates, results, cfg):
     return cards
 
 
-def pick(cards, task_type):
+def pick_for_lang(cards, task_type, lang=None):
     options = [c for c in cards if c.get("task_type") == task_type and c.get(task_type)]
     if not options:
         return ""
     options.sort(key=lambda c: (CONFIDENCE.get(c["confidence"], 0), len(c.get(task_type, ""))), reverse=True)
     return options[0][task_type]
+
+
+def localized_field(value, lang, fallback=""):
+    if isinstance(value, dict):
+        return value.get(lang) or fallback
+    if lang == DEFAULT_REPORT_LANG:
+        return value or fallback
+    return fallback
+
+
+def normalize_localized_fields(card, warned=None):
+    warned = warned if warned is not None else {"missing_en": False}
+    for field in ("title", "what_happened", "why_matters", "how_to_respond"):
+        value = card.get(field)
+        if isinstance(value, dict):
+            continue
+        text = "" if value is None else str(value)
+        card[field] = {DEFAULT_REPORT_LANG: text, "en": ""}
+        if text and not warned["missing_en"]:
+            warned["missing_en"] = True
+    if warned["missing_en"]:
+        log.warning("Evidence JSON uses legacy single-language text fields; regenerate evidence for English DOCX content")
+    return card
+
+
+def translate_card_fields(card, cfg):
+    system, user = translation_prompt(card)
+    text = call_ai(cfg["ai_base_url"], cfg["ai_model"], system, user)
+    try:
+        raw = extract_json(text)
+    except Exception:
+        log.warning("  AI translation response was not valid JSON for %s", card["cnvd_id"])
+        raw = {}
+    translated = {}
+    for field in ("title", "what_happened", "why_matters", "how_to_respond"):
+        value = raw.get(field)
+        translated[field] = "" if value is None else str(value).strip()
+    return translated
+
+
+def add_english_translations(cards, cfg):
+    for card in cards:
+        zh_card = {field: localized_field(card.get(field), DEFAULT_REPORT_LANG) for field in ("title", "what_happened", "why_matters", "how_to_respond")}
+        translated = translate_card_fields(zh_card, cfg)
+        for field in ("title", "what_happened", "why_matters", "how_to_respond"):
+            value = card.get(field)
+            if not isinstance(value, dict):
+                value = {DEFAULT_REPORT_LANG: localized_field(value, DEFAULT_REPORT_LANG), "en": ""}
+            value["en"] = translated[field]
+            card[field] = value
+    return cards
 
 
 def merge_cards(candidates, evidence_cards):
@@ -137,16 +203,21 @@ def merge_cards(candidates, evidence_cards):
     for c in candidates:
         cards = by_candidate.get(c["cnvd_id"], [])
         refs = unique(c.get("references", []) + [r for card in cards for r in card.get("references", [])])
+        localized = {}
+        localized["title"] = {DEFAULT_REPORT_LANG: next((card["title"] for card in cards if card.get("title")), c["title"]), "en": ""}
+        localized["what_happened"] = {DEFAULT_REPORT_LANG: pick_for_lang(cards, "what_happened") or c.get("summary") or "", "en": ""}
+        localized["why_matters"] = {DEFAULT_REPORT_LANG: pick_for_lang(cards, "why_matters"), "en": ""}
+        localized["how_to_respond"] = {DEFAULT_REPORT_LANG: pick_for_lang(cards, "how_to_respond") or c.get("solution") or "", "en": ""}
         merged.append({
             "cnvd_id": c["cnvd_id"],
             "source": c.get("source", "cnvd"),
             "cve_id": c.get("cve_id"),
             "search_id": c["search_id"],
-            "title": next((card["title"] for card in cards if card.get("title")), c["title"]),
+            "title": localized["title"],
             "severity": c.get("severity"),
-            "what_happened": pick(cards, "what_happened") or c.get("summary") or "",
-            "why_matters": pick(cards, "why_matters"),
-            "how_to_respond": pick(cards, "how_to_respond") or c.get("solution") or "",
+            "what_happened": localized["what_happened"],
+            "why_matters": localized["why_matters"],
+            "how_to_respond": localized["how_to_respond"],
             "affected_products": c.get("affected_products") or [],
             "cluster_label": c.get("cluster_label") or "",
             "matched_software": c.get("matched_software") or "",
@@ -160,9 +231,9 @@ def merge_cards(candidates, evidence_cards):
         log.info(
             "  %s: what=%d chars, why=%d chars, how=%d chars",
             c["cnvd_id"],
-            len(merged[-1]["what_happened"]),
-            len(merged[-1]["why_matters"]),
-            len(merged[-1]["how_to_respond"]),
+            len(localized_field(merged[-1]["what_happened"], DEFAULT_REPORT_LANG)),
+            len(localized_field(merged[-1]["why_matters"], DEFAULT_REPORT_LANG)),
+            len(localized_field(merged[-1]["how_to_respond"], DEFAULT_REPORT_LANG)),
         )
     return merged
 
@@ -199,6 +270,7 @@ def load_existing_evidence(path, candidates):
         return None
     by_id = {c["cnvd_id"]: c for c in cards}
     merged = []
+    warned = {"missing_en": False}
     for candidate in candidates:
         card = dict(by_id.get(candidate["cnvd_id"]) or {})
         card.setdefault("cnvd_id", candidate["cnvd_id"])
@@ -215,6 +287,7 @@ def load_existing_evidence(path, candidates):
         card.setdefault("references", candidate.get("references") or [])
         card.setdefault("mark", candidate.get("mark"))
         card.setdefault("mark_reasons", candidate.get("mark_reasons") or [])
+        normalize_localized_fields(card, warned)
         card["doc"] = candidate["doc"]
         merged.append(card)
     log.info("Loaded %d vulnerability card(s) from evidence JSON", len(merged))

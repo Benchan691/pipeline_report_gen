@@ -1,7 +1,14 @@
 import re
 
-from pipeline.constants import LOCALES
+from pipeline.constants import DEFAULT_REPORT_LANG, LOCALES
 from pipeline.utils import one_line, unique, val
+
+
+def localized(card, field, lang):
+    value = card.get(field)
+    if isinstance(value, dict):
+        return value.get(lang) or ""
+    return value if lang == DEFAULT_REPORT_LANG else ""
 
 
 def card_raw(card):
@@ -23,7 +30,7 @@ def link_for(card):
 
 
 def category(card):
-    text = " ".join([card.get("title", ""), card.get("what_happened", "")]).lower()
+    text = " ".join([localized(card, "title", DEFAULT_REPORT_LANG), localized(card, "what_happened", DEFAULT_REPORT_LANG)]).lower()
     checks = [
         ("代码执行", ("代码执行", "任意代码", "code execution", "rce")),
         ("信息泄露", ("信息泄露", "敏感信息", "information disclosure", "leak")),
@@ -55,28 +62,39 @@ def affected_version_text(card):
 
 
 def excel_row(card):
-    return [asset_text(card), product_text(card), affected_version_text(card), card.get("cve_id") or card["cnvd_id"], card.get("title"), category(card), card.get("what_happened"), card.get("how_to_respond")]
+    return [
+        asset_text(card),
+        product_text(card),
+        affected_version_text(card),
+        card.get("cve_id") or card["cnvd_id"],
+        localized(card, "title", DEFAULT_REPORT_LANG),
+        category(card),
+        localized(card, "what_happened", DEFAULT_REPORT_LANG),
+        localized(card, "how_to_respond", DEFAULT_REPORT_LANG),
+    ]
 
 
 def word_rows(card, lang):
     labels = LOCALES[lang]["labels"]
     id_label = "CNNVD编号" if card.get("source") == "cnnvd" and lang == "zh" else ("CNNVD Number" if card.get("source") == "cnnvd" else labels["cnvd"])
     products = card.get("affected_products") or []
-    hazard = card.get("what_happened") or "-"
-    if card.get("why_matters"):
-        hazard += "\n" + card["why_matters"]
+    what_happened = localized(card, "what_happened", lang)
+    why_matters = localized(card, "why_matters", lang)
+    hazard = what_happened or "-"
+    if why_matters:
+        hazard += "\n" + why_matters
     return [
-        (labels["title"] + val(card.get("title")),),
+        (labels["title"] + val(localized(card, "title", lang)),),
         (labels["cve"], card.get("cve_id") or "-", id_label, card["cnvd_id"]),
         (labels["system"], asset_text(card), labels["product"], one_line(products)),
         (labels["threat"], format_severity(card.get("severity") or card_raw(card).get("severity"), lang), labels["date"], val(card_date(card))),
         (labels["hazard"] + hazard,),
         (labels["scope"] + val(products),),
         (labels["ref"] + ((card.get("references") or ["-"])[0]),),
-        (labels["patch"] + val(card.get("how_to_respond")),),
+        (labels["patch"] + val(localized(card, "how_to_respond", lang)),),
         (labels["link"] + link_for(card),),
     ]
 
 
 def weekly_row(card):
-    return ["", "", card.get("cve_id") or "-", card["cnvd_id"], product_text(card), card.get("title"), format_severity(card.get("severity") or card_raw(card).get("severity"), "zh")]
+    return ["", "", card.get("cve_id") or "-", card["cnvd_id"], product_text(card), localized(card, "title", DEFAULT_REPORT_LANG), format_severity(card.get("severity") or card_raw(card).get("severity"), DEFAULT_REPORT_LANG)]

@@ -9,7 +9,9 @@ Pipeline:
 5. Save `cnvd_evidence_cards.json`.
 6. Fill the Word and Excel templates and email the outputs.
 
-Templates live in `templates/`. Each run writes three files based on the basename paths in `config.json` (for example `周報.docx`, `周報.xlsx`, `本周重要漏洞实例情况.xlsx`). When `output_date_prefix` is true (default), filenames are auto-prefixed with the report publish-date range, e.g. `2026.06.30-07.06_周報.docx`.
+Templates live in `templates/`. Each run writes four files based on the basename paths in `config.json` (for example `周報.docx`, `周報_en.docx`, `周報.xlsx`, `本周重要漏洞实例情况.xlsx`). When `output_date_prefix` is true (default), filenames are auto-prefixed with the report publish-date range, e.g. `2026.06.30-07.06_周報.docx` and `2026.06.30-07.06_周報_en.docx`.
+
+Languages are hardcoded in the pipeline: Chinese and English DOCX files are always generated, Chinese evidence is extracted first, and the merged report text is then translated to English. Excel outputs remain Chinese.
 
 `report.xlsx` keeps `影响资产` empty and fills `影响产品` / `影响版本` from CNVD plus AI evidence. `weekly_disclosure.xlsx` leaves `是否涉及` empty for human review.
 
@@ -39,7 +41,9 @@ Edit `config.json` (copy from [`config.example.json`](config.example.json)):
   "evidence_json": "cnvd_evidence_cards.json",
   "output_docx": "report.docx",
   "output_excel": "report.xlsx",
-  "output_weekly_excel": "weekly_disclosure.xlsx"
+  "output_weekly_excel": "weekly_disclosure.xlsx",
+  "email_title": "報告",
+  "email_body": "附件為本周報告。"
 }
 ```
 
@@ -67,7 +71,7 @@ Optional funnel debug dump:
 python3 export_vuln_funnel_details.py --config config.json
 ```
 
-Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx`).
+Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx` and `2026.06.30-07.06_周報_en.docx`).
 
 To email report files from an existing run folder under `output_root`:
 
@@ -76,6 +80,8 @@ To email report files from an existing run folder under `output_root`:
 ```
 
 This attaches every `.docx` and `.xlsx` file in that folder. You can also pass an absolute path or a path already under `output/`.
+
+Email subject is built as `日期範圍 + email_title`, for example `2026年5月20日-5月26日報告`.
 
 ## Layout
 

@@ -54,17 +54,17 @@ def add_page_break_after(table):
     table._element.addnext(paragraph)
 
 
-def build_docx(cards, cfg):
+def build_docx(cards, cfg, lang, output_path):
     if Document is None:
         sys.exit("Missing Python package: docx. Run with the bundled Codex Python.")
-    log.info("Building DOCX (%d table(s)) -> %s", len(cards), cfg["output_docx"])
+    log.info("Building DOCX (%s, %d table(s)) -> %s", lang, len(cards), output_path)
     doc = Document(cfg["docx_template"])
     title = next((p for p in doc.paragraphs if p.text.strip()), doc.paragraphs[0])
-    replace_text(title, title_date(cards, cfg["lang"]))
+    replace_text(title, title_date(cards, lang))
     ensure_table_count(doc, len(cards))
     for index, (table, card) in enumerate(zip(doc.tables, cards)):
-        fill_table(table, card, cfg["lang"])
+        fill_table(table, card, lang)
         if index < len(cards) - 1:
             add_page_break_after(table)
-    doc.save(cfg["output_docx"])
-    log.info("DOCX saved: %s", cfg["output_docx"])
+    doc.save(output_path)
+    log.info("DOCX saved: %s", output_path)

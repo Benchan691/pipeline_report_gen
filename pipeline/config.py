@@ -1,7 +1,7 @@
 import json
 import sys
 
-from pipeline.constants import DEFAULT_CONFIG, LOCALES
+from pipeline.constants import DEFAULT_CONFIG
 from pipeline.utils import norm_cnvd
 
 
@@ -18,7 +18,7 @@ def load_config(path, email_only=False):
     with open(path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
     if not email_only:
-        required = ["output_docx", "output_excel", "docx_template", "excel_template", "lang", "ai_base_url", "ai_model", "evidence_json"]
+        required = ["output_docx", "output_excel", "docx_template", "excel_template", "ai_base_url", "ai_model", "evidence_json"]
         for key in required:
             if key not in cfg:
                 sys.exit(f"Missing config key: {key}")
@@ -43,6 +43,8 @@ def load_config(path, email_only=False):
     cfg.setdefault("output_date_prefix", True)
     cfg.setdefault("output_root", "output")
     cfg.setdefault("email_receiver", "")
+    cfg.setdefault("email_title", "報告")
+    cfg.setdefault("email_body", "Generated report files are attached.")
     cfg.setdefault("SMTP_HOST", "")
     cfg.setdefault("SMTP_PORT", 587)
     cfg.setdefault("SMTP_USERNAME", "")
@@ -51,7 +53,5 @@ def load_config(path, email_only=False):
     cfg.setdefault("SMTP_USE_TLS", True)
     cfg.setdefault("SMTP_USE_SSL", False)
     if not email_only:
-        if cfg["lang"] not in LOCALES:
-            sys.exit("config lang must be en or zh")
         cfg["search_provider"] = normalize_search_provider(cfg["search_provider"])
     return cfg

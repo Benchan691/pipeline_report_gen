@@ -24,8 +24,8 @@ def send_report_email(cfg, paths, subject=None, smtp_factory=None):
     sender = cfg.get("SMTP_FROM") or cfg.get("SMTP_USERNAME")
     message["From"] = sender
     message["To"] = cfg["email_receiver"]
-    message["Subject"] = subject or "CNVD report files"
-    message.set_content("Generated report files are attached.")
+    message["Subject"] = subject or str(cfg.get("email_title") or "報告").strip()
+    message.set_content(cfg.get("email_body") or "Generated report files are attached.")
 
     for path in paths:
         ctype, _ = mimetypes.guess_type(path)
