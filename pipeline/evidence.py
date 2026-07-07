@@ -194,6 +194,22 @@ def add_english_translations(cards, cfg):
     return cards
 
 
+def card_missing_english(card):
+    for field in ("title", "what_happened", "why_matters", "how_to_respond"):
+        value = card.get(field)
+        if not isinstance(value, dict):
+            return True
+        zh_text = str(value.get(DEFAULT_REPORT_LANG) or "").strip()
+        en_text = str(value.get("en") or "").strip()
+        if zh_text and not en_text:
+            return True
+    return False
+
+
+def cards_missing_english(cards):
+    return any(card_missing_english(card) for card in cards)
+
+
 def merge_cards(candidates, evidence_cards):
     by_candidate = {}
     for card in evidence_cards:
@@ -247,6 +263,26 @@ def write_evidence(path, candidates, search_results, evidence_cards, merged_card
             "source_evidence_cards": evidence_cards,
             "vulnerability_cards": [{k: v for k, v in c.items() if k != "doc"} for c in merged_cards],
         }, f, ensure_ascii=False, indent=2)
+
+
+def read_evidence_payload(path):
+    with open(path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if isinstance(payload, dict):
+        return payload
+    return {
+        "candidates": [],
+        "search_results": [],
+        "source_evidence_cards": [],
+        "vulnerability_cards": payload,
+    }
+
+
+def update_vulnerability_cards(path, merged_cards):
+    payload = read_evidence_payload(path)
+    payload["vulnerability_cards"] = [{k: v for k, v in c.items() if k != "doc"} for c in merged_cards]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
 def clear_evidence(path):

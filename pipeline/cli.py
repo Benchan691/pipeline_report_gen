@@ -13,10 +13,12 @@ from pipeline.dependencies import check_dependencies, load_workbook, setup_loggi
 from pipeline.docx_report import build_docx
 from pipeline.evidence import (
     add_english_translations,
+    cards_missing_english,
     extract_evidence_cards,
     load_existing_evidence,
     merge_cards,
     pick_for_lang,
+    update_vulnerability_cards,
     write_evidence,
 )
 from pipeline.excel_report import build_excel, build_weekly_excel, row_height
@@ -40,6 +42,56 @@ from pipeline.search import parse_firecrawl_results, queries_for_candidate, web_
 from pipeline.utils import norm_cnvd
 
 log = logging.getLogger(__name__)
+
+
+def load_candidates_for_config(cfg):
+    if cfg.get("use_filtered_vuln_ids"):
+        candidates, stats = load_filtered_candidates(cfg)
+        log.info(
+            "Shortlist: marked=%d, after_cluster_cap=%d, selected=%d",
+            stats["marked"],
+            stats["after_cluster_cap"],
+            len(candidates),
+        )
+        return candidates
+    if cfg.get("cnvd_ids"):
+        return query_cnvd(cfg["cnvd_ids"])
+    return query_cnvd_by_scrape_days(cfg["scrape_days"])
+
+
+def load_existing_cards_or_exit(cfg, candidates):
+    cards = load_existing_evidence(cfg["evidence_json"], candidates)
+    if cards is None:
+        sys.exit(f"Existing evidence is empty or missing usable cards: {cfg['evidence_json']}")
+    return cards
+
+
+def maybe_translate_cards(cards, cfg, write_back=False):
+    if not cards_missing_english(cards):
+        return cards
+    log.info("English translations missing; translating %d card(s)", len(cards))
+    cards = add_english_translations(cards, cfg)
+    if write_back:
+        update_vulnerability_cards(cfg["evidence_json"], cards)
+    return cards
+
+
+def build_report_outputs(cfg, cards):
+    output_dir = apply_run_output_paths(cfg, cards)
+    log.info("Output folder: %s", output_dir)
+    log.info(
+        "Output files: %s, %s, %s, %s",
+        cfg["output_docx"],
+        cfg["output_docx_en"],
+        cfg["output_excel"],
+        cfg["output_weekly_excel"],
+    )
+    for lang in REPORT_LANGS:
+        output_path = cfg["output_docx"] if lang == "zh" else cfg["output_docx_en"]
+        build_docx(cards, cfg, lang, output_path)
+    build_excel(cards, cfg)
+    build_weekly_excel(cards, cfg)
+    return [cfg["output_docx"], cfg["output_docx_en"], cfg["output_excel"], cfg["output_weekly_excel"]]
 
 
 def self_test():
@@ -113,6 +165,7 @@ def self_test():
     assert merged["what_happened"]["zh"] == "中文描述"
     assert merged["what_happened"]["en"] == ""
     assert pick_for_lang(evidence_cards, "what_happened", "en") == "中文描述"
+    assert cards_missing_english([merged]) is True
     original_call_ai = __import__("pipeline.evidence", fromlist=["call_ai"]).call_ai
     try:
         import pipeline.evidence as evidence_mod
@@ -132,6 +185,7 @@ def self_test():
     finally:
         evidence_mod.call_ai = original_call_ai
     assert translated_cards[0]["what_happened"]["en"] == "English description"
+    assert cards_missing_english(translated_cards) is False
     dated_cfg = {
         "output_docx": "周報.docx",
         "output_excel": "周報.xlsx",
@@ -253,6 +307,8 @@ def main():
     parser = argparse.ArgumentParser(description="Generate CNVD-first evidence-card DOCX and XLSX reports.")
     parser.add_argument("--config", default=DEFAULT_CONFIG, help="config JSON path")
     parser.add_argument("--self-test", action="store_true", help="run local assertions without MongoDB, SearXNG, or AI")
+    parser.add_argument("--translate", action="store_true", help="translate existing evidence JSON to English fields only")
+    parser.add_argument("--build-reports", action="store_true", help="build reports from existing evidence JSON without search or email")
     parser.add_argument(
         "--send-email",
         metavar="FOLDER",
@@ -262,6 +318,12 @@ def main():
     if args.self_test:
         self_test()
         return
+    if args.translate and args.build_reports:
+        sys.exit("--translate and --build-reports cannot be used together")
+    if args.translate and args.send_email:
+        sys.exit("--translate cannot be used with --send-email")
+    if args.build_reports and args.send_email:
+        sys.exit("--build-reports cannot be used with --send-email")
 
     setup_logging()
     if args.send_email:
@@ -270,13 +332,19 @@ def main():
         send_email_from_folder(cfg, args.send_email)
         return
 
-    check_dependencies()
-    log.info("Starting CNVD report pipeline (config=%s)", args.config)
     cfg = load_config(args.config)
-    try:
-        require_email_config(cfg)
-    except ValueError as exc:
-        sys.exit(str(exc))
+    if args.translate:
+        log.info("Translating evidence JSON (config=%s)", args.config)
+    elif args.build_reports:
+        check_dependencies()
+        log.info("Building reports from existing evidence (config=%s)", args.config)
+    else:
+        check_dependencies()
+        log.info("Starting CNVD report pipeline (config=%s)", args.config)
+        try:
+            require_email_config(cfg)
+        except ValueError as exc:
+            sys.exit(str(exc))
     log.info(
         "Config: scrape_days=%s, cnvd_ids=%s, use_filtered_vuln_ids=%s, use_existing_evidence_json=%s",
         cfg.get("scrape_days"),
@@ -284,19 +352,19 @@ def main():
         cfg.get("use_filtered_vuln_ids"),
         cfg.get("use_existing_evidence_json"),
     )
+    candidates = load_candidates_for_config(cfg)
+    if args.translate:
+        cards = load_existing_cards_or_exit(cfg, candidates)
+        cards = maybe_translate_cards(cards, cfg, write_back=True)
+        log.info("Evidence translation updated: %s", cfg["evidence_json"])
+        return
+    if args.build_reports:
+        cards = load_existing_cards_or_exit(cfg, candidates)
+        cards = maybe_translate_cards(cards, cfg, write_back=True)
+        paths = build_report_outputs(cfg, cards)
+        log.info("Done. Outputs: %s, %s, %s, %s", *paths)
+        return
 
-    if cfg.get("use_filtered_vuln_ids"):
-        candidates, stats = load_filtered_candidates(cfg)
-        log.info(
-            "Shortlist: marked=%d, after_cluster_cap=%d, selected=%d",
-            stats["marked"],
-            stats["after_cluster_cap"],
-            len(candidates),
-        )
-    elif cfg.get("cnvd_ids"):
-        candidates = query_cnvd(cfg["cnvd_ids"])
-    else:
-        candidates = query_cnvd_by_scrape_days(cfg["scrape_days"])
     cards = load_existing_evidence(cfg["evidence_json"], candidates) if cfg.get("use_existing_evidence_json") else None
     if cards is None:
         search_results = search_mod.search_candidates(candidates, cfg)
@@ -306,22 +374,10 @@ def main():
         cards = merge_cards(candidates, evidence_cards)
         cards = add_english_translations(cards, cfg)
         write_evidence(cfg["evidence_json"], candidates, search_results, evidence_cards, cards)
+    else:
+        cards = maybe_translate_cards(cards, cfg, write_back=True)
 
-    output_dir = apply_run_output_paths(cfg, cards)
-    log.info("Output folder: %s", output_dir)
-    log.info(
-        "Output files: %s, %s, %s, %s",
-        cfg["output_docx"],
-        cfg["output_docx_en"],
-        cfg["output_excel"],
-        cfg["output_weekly_excel"],
-    )
-    for lang in REPORT_LANGS:
-        output_path = cfg["output_docx"] if lang == "zh" else cfg["output_docx_en"]
-        build_docx(cards, cfg, lang, output_path)
-    build_excel(cards, cfg)
-    build_weekly_excel(cards, cfg)
-    paths = [cfg["output_docx"], cfg["output_docx_en"], cfg["output_excel"], cfg["output_weekly_excel"]]
+    paths = build_report_outputs(cfg, cards)
     send_report_email(cfg, paths, build_email_subject(cfg, cards=cards))
     log.info("Email sent to %s", cfg["email_receiver"])
     log.info("Done. Outputs: %s, %s, %s, %s", *paths)

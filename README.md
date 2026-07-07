@@ -57,6 +57,20 @@ To regenerate reports from an existing evidence JSON without new web/AI extracti
 "use_existing_evidence_json": true
 ```
 
+To translate existing evidence JSON in place without building reports:
+
+```bash
+.venv/bin/python cnvd_docx.py --config config.json --translate
+```
+
+To build DOCX/XLSX reports from existing evidence JSON without rerunning web extraction or sending email:
+
+```bash
+.venv/bin/python cnvd_docx.py --config config.json --build-reports
+```
+
+`--build-reports` will backfill missing English translations before writing the report files.
+
 ## Usage
 
 One command runs the full workflow (cluster matching + report generation):
