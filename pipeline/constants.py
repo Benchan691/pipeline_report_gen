@@ -35,7 +35,7 @@ LOCALES = {
             "patch": "官方补丁：",
             "link": "漏洞链接：",
         },
-        "severity_map": {"High": "高危", "Medium": "中危", "Low": "低危", "High-risk": "高危", "Medium-risk": "中危", "Low-risk": "低危"},
+        "severity_map": {"Critical": "严重", "High": "高危", "Medium": "中危", "Low": "低危", "Critical-risk": "严重", "High-risk": "高危", "Medium-risk": "中危", "Low-risk": "低危"},
     },
     "en": {
         "title_fallback": "%Y\u2002%m.%d\u2002Latest\u2002vulnerability\u2002intelligence",

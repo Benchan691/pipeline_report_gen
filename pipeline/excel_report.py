@@ -3,7 +3,7 @@ import math
 import sys
 from copy import copy
 
-from pipeline.dependencies import Alignment, load_workbook
+from pipeline.dependencies import Alignment, get_column_letter, load_workbook
 from pipeline.formatting import excel_row, weekly_row
 
 log = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 def row_height(ws, values):
     lines = 1
     for col_index, value in enumerate(values, start=1):
-        width = ws.column_dimensions[ws.cell(1, col_index).column_letter].width or 12
+        width = ws.column_dimensions[get_column_letter(col_index)].width or 12
         for part in str(value or "").splitlines() or [""]:
             lines = max(lines, math.ceil(len(part) / max(width * 0.9, 8)))
     return min(180, max(30, lines * 18))
@@ -62,7 +62,7 @@ def build_weekly_excel(cards, cfg):
         ws.delete_rows(3, ws.max_row - 2)
     for row_index, card in enumerate(cards, start=3):
         values = weekly_row(card)
-        ws.row_dimensions[row_index].height = 19.5
+        ws.row_dimensions[row_index].height = row_height(ws, values)
         for col_index, value in enumerate(values, start=1):
             cell = ws.cell(row_index, col_index, value)
             style = styles[col_index - 1]

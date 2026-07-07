@@ -8,12 +8,14 @@ try:
     from docx.oxml.ns import qn
     from openpyxl import load_workbook
     from openpyxl.styles import Alignment
+    from openpyxl.utils import get_column_letter
 except ImportError:
     Document = None
     OxmlElement = None
     qn = None
     load_workbook = None
     Alignment = None
+    get_column_letter = None
 
 
 def setup_logging():

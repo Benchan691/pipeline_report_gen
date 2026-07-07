@@ -9,7 +9,7 @@ from datetime import datetime
 
 from pipeline.config import load_config, normalize_search_provider
 from pipeline.constants import DEFAULT_CONFIG
-from pipeline.dependencies import check_dependencies, setup_logging
+from pipeline.dependencies import check_dependencies, load_workbook, setup_logging
 from pipeline.docx_report import build_docx
 from pipeline.evidence import (
     extract_evidence_cards,
@@ -17,8 +17,8 @@ from pipeline.evidence import (
     merge_cards,
     write_evidence,
 )
-from pipeline.excel_report import build_excel, build_weekly_excel
-from pipeline.formatting import category, excel_row, weekly_row, word_rows
+from pipeline.excel_report import build_excel, build_weekly_excel, row_height
+from pipeline.formatting import category, excel_row, format_severity, weekly_row, word_rows
 from pipeline.mailer import require_email_config, send_report_email
 from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
 from pipeline.vuln_match import load_filtered_candidates, self_test as vuln_match_self_test
@@ -53,6 +53,7 @@ def self_test():
     assert excel_row(card)[-1] == "修复"
     assert len(excel_row(card)) == 8
     assert weekly_row(card)[1] == ""
+    assert format_severity("Critical", "zh") == "严重"
     cnnvd_doc = {"code": "2026-32651935", "severity": "High", "details": {"cnnvd": {"cnnvdId": "CNNVD-2026-32651935", "vulName": "T", "cveId": "CVE-2026-1", "vendorName": "V", "productName": "P", "publishDate": "2026-07-01"}}}
     cnnvd = candidate_from_cnnvd_doc(cnnvd_doc)
     assert cnnvd["cnvd_id"] == "CNNVD-2026-32651935" and cnnvd["cve_id"] == "CVE-2026-1"
@@ -117,6 +118,10 @@ def self_test():
         paths = list_report_paths(run_dir)
         assert len(paths) == 3
         assert email_subject_from_paths(paths) == "CNVD report files: 2026.06.30-07.06"
+    if load_workbook is not None:
+        ws = load_workbook(cfg["weekly_excel_template"]).active
+        long_weekly_values = ["", "", "CVE-1", "CNVD-1", "很长的影响产品文本" * 20, "漏洞", "严重"]
+        assert row_height(ws, long_weekly_values) > 19.5
     try:
         require_email_config({"SMTP_HOST": "smtp.example.com", "SMTP_USERNAME": "sender@example.com"})
         raise AssertionError("missing email_receiver should be rejected")
