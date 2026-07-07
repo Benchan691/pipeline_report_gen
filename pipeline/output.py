@@ -55,7 +55,7 @@ def apply_dated_output_paths(cfg, cards):
     if not cfg.get("output_date_prefix", True):
         return
     prefix = report_date_prefix(cards)
-    for key in ("output_docx", "output_excel", "output_weekly_excel"):
+    for key in ("output_docx", "output_weekly_excel"):
         if cfg.get(key):
             cfg[key] = apply_dated_output_path(prefix, cfg[key])
     sync_docx_output_paths(cfg)
@@ -64,7 +64,7 @@ def apply_dated_output_paths(cfg, cards):
 def apply_run_output_paths(cfg, cards, now=None):
     output_dir = create_run_output_dir(cfg.get("output_root", "output"), now)
     apply_dated_output_paths(cfg, cards)
-    for key in ("output_docx", "output_excel", "output_weekly_excel"):
+    for key in ("output_docx", "output_weekly_excel"):
         if cfg.get(key):
             cfg[key] = os.path.join(output_dir, os.path.basename(cfg[key]))
     sync_docx_output_paths(cfg)

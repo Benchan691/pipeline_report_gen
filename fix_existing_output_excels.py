@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 import sys
-from copy import copy
 from pathlib import Path
 
 from pipeline.dependencies import load_workbook
-from pipeline.excel_report import row_height
-
-
-SEVERITY_MAP = {"Critical": "严重", "Critical-risk": "严重"}
+from pipeline.excel_report import rebuild_weekly_sheet
 
 
 def weekly_files(root):
@@ -20,28 +16,41 @@ def weekly_files(root):
             yield path
 
 
-def fix_file(path):
-    wb = load_workbook(path)
-    ws = wb.active
-    changed = False
+def cards_from_weekly(path):
+    ws = load_workbook(path).active
+    cards = []
+    seen = set()
     for row_index in range(3, ws.max_row + 1):
-        if ws.cell(row_index, 7).value in SEVERITY_MAP:
-            ws.cell(row_index, 7).value = SEVERITY_MAP[ws.cell(row_index, 7).value]
-            changed = True
-        values = [ws.cell(row_index, col).value for col in range(1, ws.max_column + 1)]
-        height = row_height(ws, values)
-        if ws.row_dimensions[row_index].height != height:
-            ws.row_dimensions[row_index].height = height
-            changed = True
-        for cell in ws[row_index]:
-            alignment = copy(cell.alignment)
-            if not alignment.wrap_text:
-                alignment.wrap_text = True
-                cell.alignment = alignment
-                changed = True
-    if changed:
-        wb.save(path)
-    return changed
+        cve = ws.cell(row_index, 3).value
+        cnvd = ws.cell(row_index, 4).value
+        product = ws.cell(row_index, 5).value
+        title = ws.cell(row_index, 6).value
+        severity = ws.cell(row_index, 7).value
+        if not any((cve, cnvd, product, title, severity)):
+            continue
+        key = (cve, cnvd, product, title, severity)
+        if key in seen:
+            continue
+        seen.add(key)
+        cards.append({
+            "cve_id": None if cve == "-" else cve,
+            "cnvd_id": cnvd or "-",
+            "affected_products": [product] if product else [],
+            "title": title or "",
+            "severity": severity or "",
+            "doc": {"details": {"cnvd": {}}},
+        })
+    return cards
+
+
+def fix_file(path):
+    cards = cards_from_weekly(path)
+    wb = load_workbook("templates/weekly_disclosure.xlsx")
+    ws = wb.active
+    if not rebuild_weekly_sheet(ws, cards):
+        raise RuntimeError("templates/weekly_disclosure.xlsx has no weekly region blocks")
+    wb.save(path)
+    return True
 
 
 def main():

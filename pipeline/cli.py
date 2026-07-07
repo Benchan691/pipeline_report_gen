@@ -21,7 +21,7 @@ from pipeline.evidence import (
     update_vulnerability_cards,
     write_evidence,
 )
-from pipeline.excel_report import build_excel, build_weekly_excel, row_height
+from pipeline.excel_report import build_weekly_excel, row_height
 from pipeline.formatting import category, excel_row, format_severity, localized, weekly_row, word_rows
 from pipeline.mailer import require_email_config, send_report_email
 from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
@@ -80,18 +80,16 @@ def build_report_outputs(cfg, cards):
     output_dir = apply_run_output_paths(cfg, cards)
     log.info("Output folder: %s", output_dir)
     log.info(
-        "Output files: %s, %s, %s, %s",
+        "Output files: %s, %s, %s",
         cfg["output_docx"],
         cfg["output_docx_en"],
-        cfg["output_excel"],
         cfg["output_weekly_excel"],
     )
     for lang in REPORT_LANGS:
         output_path = cfg["output_docx"] if lang == "zh" else cfg["output_docx_en"]
         build_docx(cards, cfg, lang, output_path)
-    build_excel(cards, cfg)
     build_weekly_excel(cards, cfg)
-    return [cfg["output_docx"], cfg["output_docx_en"], cfg["output_excel"], cfg["output_weekly_excel"]]
+    return [cfg["output_docx"], cfg["output_docx_en"], cfg["output_weekly_excel"]]
 
 
 def self_test():
@@ -188,7 +186,6 @@ def self_test():
     assert cards_missing_english(translated_cards) is False
     dated_cfg = {
         "output_docx": "周報.docx",
-        "output_excel": "周報.xlsx",
         "output_weekly_excel": "本周重要漏洞实例情况.xlsx",
         "output_date_prefix": True,
     }
@@ -197,7 +194,6 @@ def self_test():
     assert dated_cfg["output_docx_en"] == "2026.06.30-07.06_周報_en.docx"
     run_cfg = {
         "output_docx": "周報.docx",
-        "output_excel": "周報.xlsx",
         "output_weekly_excel": "本周重要漏洞实例情况.xlsx",
         "output_date_prefix": True,
         "output_root": tempfile.mkdtemp(),
@@ -209,7 +205,7 @@ def self_test():
     with tempfile.TemporaryDirectory() as output_root:
         run_dir = os.path.join(output_root, "20260706_173000")
         os.makedirs(run_dir)
-        for name in ("2026.06.30-07.06_周報.docx", "2026.06.30-07.06_周報.xlsx", "2026.06.30-07.06_本周重要漏洞实例情况.xlsx"):
+        for name in ("2026.06.30-07.06_周報.docx", "2026.06.30-07.06_周報_en.docx", "2026.06.30-07.06_本周重要漏洞实例情况.xlsx"):
             with open(os.path.join(run_dir, name), "wb") as f:
                 f.write(b"x")
         email_cfg = {"output_root": output_root}
@@ -222,6 +218,22 @@ def self_test():
         ws = load_workbook(cfg["weekly_excel_template"]).active
         long_weekly_values = ["", "", "CVE-1", "CNVD-1", "很长的影响产品文本" * 20, "漏洞", "严重"]
         assert row_height(ws, long_weekly_values) > 19.5
+        with tempfile.TemporaryDirectory() as tmpdir:
+            weekly_path = os.path.join(tmpdir, "weekly.xlsx")
+            weekly_cards = [
+                {"cnvd_id": "CNVD-1", "cve_id": "CVE-1", "affected_products": ["产品" * 60], "title": "漏洞一", "severity": "Critical", "doc": {"details": {"cnvd": {}}}},
+                {"cnvd_id": "CNVD-2", "cve_id": "CVE-2", "affected_products": ["Product"], "title": "漏洞二", "severity": "High", "doc": {"details": {"cnvd": {}}}},
+            ]
+            build_weekly_excel(weekly_cards, {"weekly_excel_template": cfg["weekly_excel_template"], "output_weekly_excel": weekly_path})
+            weekly_ws = load_workbook(weekly_path).active
+            labels = [weekly_ws.cell(r.min_row, 1).value for r in sorted(weekly_ws.merged_cells.ranges, key=lambda item: item.min_row) if r.min_col == r.max_col == 1 and r.min_row >= 3]
+            assert labels == ["CEC&CPC-infra", "TW", "EU", "IRD", "APP Team"]
+            first_block = min((r for r in weekly_ws.merged_cells.ranges if r.min_col == r.max_col == 1 and r.min_row >= 3), key=lambda r: r.min_row)
+            assert weekly_ws.cell(first_block.min_row, 2).value in (None, "")
+            assert weekly_ws.cell(first_block.min_row, 3).value == "CVE-1"
+            assert weekly_ws.cell(first_block.min_row + 1, 3).value == "CVE-2"
+            assert weekly_ws.cell(first_block.min_row, 7).value == "严重"
+            assert weekly_ws.row_dimensions[first_block.min_row].height > 19.5
     try:
         require_email_config({"SMTP_HOST": "smtp.example.com", "SMTP_USERNAME": "sender@example.com"})
         raise AssertionError("missing email_receiver should be rejected")
@@ -362,7 +374,7 @@ def main():
         cards = load_existing_cards_or_exit(cfg, candidates)
         cards = maybe_translate_cards(cards, cfg, write_back=True)
         paths = build_report_outputs(cfg, cards)
-        log.info("Done. Outputs: %s, %s, %s, %s", *paths)
+        log.info("Done. Outputs: %s, %s, %s", *paths)
         return
 
     cards = load_existing_evidence(cfg["evidence_json"], candidates) if cfg.get("use_existing_evidence_json") else None
@@ -380,4 +392,4 @@ def main():
     paths = build_report_outputs(cfg, cards)
     send_report_email(cfg, paths, build_email_subject(cfg, cards=cards))
     log.info("Email sent to %s", cfg["email_receiver"])
-    log.info("Done. Outputs: %s, %s, %s, %s", *paths)
+    log.info("Done. Outputs: %s, %s, %s", *paths)
