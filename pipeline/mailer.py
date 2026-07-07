@@ -46,5 +46,8 @@ def send_report_email(cfg, paths, subject=None, smtp_factory=None):
         username = cfg.get("SMTP_USERNAME")
         password = cfg.get("SMTP_PASSWORD")
         if username and password:
-            smtp.login(username, password)
+            try:
+                smtp.login(username, password)
+            except smtplib.SMTPNotSupportedError:
+                pass
         smtp.send_message(message)

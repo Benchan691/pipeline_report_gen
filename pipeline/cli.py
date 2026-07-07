@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import smtplib
 import sys
 import tempfile
 from datetime import datetime
@@ -116,6 +117,9 @@ def self_test():
             sent["login"] = (username, password)
         def send_message(self, message):
             sent["message"] = message
+    class FakeNoAuthSMTP(FakeSMTP):
+        def login(self, username, password):
+            raise smtplib.SMTPNotSupportedError("SMTP AUTH extension not supported by server.")
     with tempfile.NamedTemporaryFile("wb") as a, tempfile.NamedTemporaryFile("wb") as b, tempfile.NamedTemporaryFile("wb") as c:
         for f in (a, b, c):
             f.write(b"x")
@@ -133,6 +137,20 @@ def self_test():
             },
             [a.name, b.name, c.name],
             smtp_factory=FakeSMTP,
+        )
+        send_report_email(
+            {
+                "email_receiver": "receiver@example.com",
+                "SMTP_HOST": "smtp.example.com",
+                "SMTP_PORT": 2525,
+                "SMTP_USERNAME": "sender@example.com",
+                "SMTP_PASSWORD": "secret",
+                "SMTP_FROM": "",
+                "SMTP_USE_TLS": False,
+                "SMTP_USE_SSL": False,
+            },
+            [a.name, b.name, c.name],
+            smtp_factory=FakeNoAuthSMTP,
         )
     assert sent["message"]["To"] == "receiver@example.com"
     assert len(list(sent["message"].iter_attachments())) == 3
