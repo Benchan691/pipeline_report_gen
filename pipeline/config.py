@@ -14,19 +14,20 @@ def normalize_search_provider(provider):
     return provider
 
 
-def load_config(path):
+def load_config(path, email_only=False):
     with open(path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
-    required = ["output_docx", "output_excel", "docx_template", "excel_template", "lang", "ai_base_url", "ai_model", "evidence_json"]
-    for key in required:
-        if key not in cfg:
-            sys.exit(f"Missing config key: {key}")
-    if cfg.get("cnvd_ids"):
-        cfg["cnvd_ids"] = [norm_cnvd(i) for i in cfg["cnvd_ids"]]
-    elif cfg.get("scrape_days") is not None:
-        cfg["scrape_days"] = int(cfg["scrape_days"])
-    else:
-        sys.exit("Missing config key: scrape_days (or provide cnvd_ids)")
+    if not email_only:
+        required = ["output_docx", "output_excel", "docx_template", "excel_template", "lang", "ai_base_url", "ai_model", "evidence_json"]
+        for key in required:
+            if key not in cfg:
+                sys.exit(f"Missing config key: {key}")
+        if cfg.get("cnvd_ids"):
+            cfg["cnvd_ids"] = [norm_cnvd(i) for i in cfg["cnvd_ids"]]
+        elif cfg.get("scrape_days") is not None:
+            cfg["scrape_days"] = int(cfg["scrape_days"])
+        else:
+            sys.exit("Missing config key: scrape_days (or provide cnvd_ids)")
     cfg.setdefault("search_provider", "searxng")
     cfg.setdefault("searxng_base_url", "")
     cfg.setdefault("searxng_max_results", 5)
@@ -49,7 +50,8 @@ def load_config(path):
     cfg.setdefault("SMTP_FROM", "")
     cfg.setdefault("SMTP_USE_TLS", True)
     cfg.setdefault("SMTP_USE_SSL", False)
-    if cfg["lang"] not in LOCALES:
-        sys.exit("config lang must be en or zh")
-    cfg["search_provider"] = normalize_search_provider(cfg["search_provider"])
+    if not email_only:
+        if cfg["lang"] not in LOCALES:
+            sys.exit("config lang must be en or zh")
+        cfg["search_provider"] = normalize_search_provider(cfg["search_provider"])
     return cfg

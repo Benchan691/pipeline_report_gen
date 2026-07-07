@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 import smtplib
 import sys
 import tempfile
@@ -21,7 +22,15 @@ from pipeline.formatting import category, excel_row, weekly_row, word_rows
 from pipeline.mailer import require_email_config, send_report_email
 from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
 from pipeline.vuln_match import load_filtered_candidates, self_test as vuln_match_self_test
-from pipeline.output import apply_dated_output_path, apply_dated_output_paths, apply_run_output_paths, report_date_prefix
+from pipeline.output import (
+    apply_dated_output_path,
+    apply_dated_output_paths,
+    apply_run_output_paths,
+    email_subject_from_paths,
+    list_report_paths,
+    report_date_prefix,
+    resolve_output_folder,
+)
 from pipeline import search as search_mod
 from pipeline.search import parse_firecrawl_results, queries_for_candidate, web_search
 from pipeline.utils import norm_cnvd
@@ -96,6 +105,18 @@ def self_test():
     apply_run_output_paths(run_cfg, dated_cards, datetime(2026, 7, 6, 17, 30, 0))
     assert run_cfg["output_dir"].endswith("20260706_173000")
     assert run_cfg["output_docx"].endswith("20260706_173000/2026.06.30-07.06_周報.docx")
+    with tempfile.TemporaryDirectory() as output_root:
+        run_dir = os.path.join(output_root, "20260706_173000")
+        os.makedirs(run_dir)
+        for name in ("2026.06.30-07.06_周報.docx", "2026.06.30-07.06_周報.xlsx", "2026.06.30-07.06_本周重要漏洞实例情况.xlsx"):
+            with open(os.path.join(run_dir, name), "wb") as f:
+                f.write(b"x")
+        email_cfg = {"output_root": output_root}
+        assert resolve_output_folder(email_cfg, "20260706_173000") == run_dir
+        assert resolve_output_folder(email_cfg, run_dir) == run_dir
+        paths = list_report_paths(run_dir)
+        assert len(paths) == 3
+        assert email_subject_from_paths(paths) == "CNVD report files: 2026.06.30-07.06"
     try:
         require_email_config({"SMTP_HOST": "smtp.example.com", "SMTP_USERNAME": "sender@example.com"})
         raise AssertionError("missing email_receiver should be rejected")
@@ -158,16 +179,40 @@ def self_test():
     print("self-test ok")
 
 
+def send_email_from_folder(cfg, folder_path):
+    try:
+        require_email_config(cfg)
+        folder = resolve_output_folder(cfg, folder_path)
+        paths = list_report_paths(folder)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    subject = email_subject_from_paths(paths, folder)
+    send_report_email(cfg, paths, subject)
+    log.info("Email sent to %s (%d files from %s)", cfg["email_receiver"], len(paths), folder)
+    log.info("Attached: %s", ", ".join(os.path.basename(path) for path in paths))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate CNVD-first evidence-card DOCX and XLSX reports.")
     parser.add_argument("--config", default=DEFAULT_CONFIG, help="config JSON path")
     parser.add_argument("--self-test", action="store_true", help="run local assertions without MongoDB, SearXNG, or AI")
+    parser.add_argument(
+        "--send-email",
+        metavar="FOLDER",
+        help="email .docx/.xlsx report files from an existing folder under output_root (e.g. 20260706_173000)",
+    )
     args = parser.parse_args()
     if args.self_test:
         self_test()
         return
 
     setup_logging()
+    if args.send_email:
+        log.info("Sending report email from folder %s (config=%s)", args.send_email, args.config)
+        cfg = load_config(args.config, email_only=True)
+        send_email_from_folder(cfg, args.send_email)
+        return
+
     check_dependencies()
     log.info("Starting CNVD report pipeline (config=%s)", args.config)
     cfg = load_config(args.config)

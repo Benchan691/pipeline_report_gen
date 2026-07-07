@@ -69,6 +69,14 @@ python3 export_vuln_funnel_details.py --config config.json
 
 Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx`).
 
+To email report files from an existing run folder under `output_root`:
+
+```bash
+.venv/bin/python cnvd_docx.py --config config.json --send-email 20260706_173000
+```
+
+This attaches every `.docx` and `.xlsx` file in that folder. You can also pass an absolute path or a path already under `output/`.
+
 ## Layout
 
 - [`cnvd_docx.py`](cnvd_docx.py) — CLI entry point

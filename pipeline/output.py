@@ -63,3 +63,45 @@ def title_date(cards, lang):
         return datetime.now().strftime(locale["title_fallback"])
     start, end = dates[0], dates[-1]
     return locale["title_range"].format(y1=start[:4], m1=start[5:7], d1=start[8:10], m2=end[5:7], d2=end[8:10])
+
+
+def resolve_output_folder(cfg, folder_path):
+    folder_path = str(folder_path or "").strip()
+    if not folder_path:
+        raise ValueError("Output folder path is required")
+    if os.path.isabs(folder_path):
+        path = os.path.normpath(folder_path)
+    else:
+        root = os.path.normpath(cfg.get("output_root", "output"))
+        norm_folder = os.path.normpath(folder_path)
+        if norm_folder == root or norm_folder.startswith(root + os.sep):
+            path = norm_folder
+        else:
+            path = os.path.join(root, norm_folder)
+    if not os.path.isdir(path):
+        raise ValueError(f"Output folder not found: {path}")
+    return path
+
+
+def list_report_paths(folder):
+    paths = []
+    for name in sorted(os.listdir(folder)):
+        if name.startswith("~$"):
+            continue
+        if name.endswith((".docx", ".xlsx")):
+            paths.append(os.path.join(folder, name))
+    if not paths:
+        raise ValueError(f"No report files found in {folder}")
+    return paths
+
+
+def email_subject_from_paths(paths, folder=None):
+    for path in paths:
+        stem, _ = os.path.splitext(os.path.basename(path))
+        if "_" in stem:
+            prefix = stem.split("_", 1)[0]
+            if len(prefix) >= 10 and prefix[4] == "." and prefix[7] == ".":
+                return f"CNVD report files: {prefix}"
+    if folder:
+        return f"CNVD report files: {os.path.basename(folder)}"
+    return "CNVD report files"
