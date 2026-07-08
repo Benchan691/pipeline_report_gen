@@ -62,10 +62,7 @@ Copy [`.env.example`](.env.example) to `.env` and set:
 
 - `FIRECRAWL_API_KEY` — Firecrawl API key (required when `search_provider` is `firecrawl`, or when SearXNG fallback is enabled)
 - `EMAIL_RECEIVER` — recipient email address for the final eDrive share-link notification
-- `ZIMBRA_HOST`, `ZIMBRA_EMAIL`, `ZIMBRA_PASSWORD` — Zimbra account for transfer emails and SMTP notification delivery
-- `ZIMBRA_SMTP_PORT` — Zimbra SMTP port (default `587`)
-- `ZIMBRA_SMTP_USE_TLS` — use STARTTLS for Zimbra SMTP (`true` / `false`, default `true`)
-- `ZIMBRA_SMTP_USE_SSL` — use SMTP SSL (`true` / `false`, default `false`)
+- `ZIMBRA_HOST`, `ZIMBRA_EMAIL`, `ZIMBRA_PASSWORD` — Zimbra SOAP account for transfer emails and notification delivery
 - `EDRIVE_USERNAME` — eDrive account
 - `EDRIVE_PASSWORD` — eDrive password
 - `EDRIVE_REMOTE_PATH` — parent folder on eDrive (each run uploads to `{EDRIVE_REMOTE_PATH}/{run_folder}`)
@@ -145,5 +142,5 @@ Email subject is built as `日期範圍 + email_title`, for example `2026年5月
 - [`pipeline/excel_report.py`](pipeline/excel_report.py) — Excel report builders
 - [`pipeline/email_send.py`](pipeline/email_send.py) — bridge from pipeline config to `report_email`
 - [`pipeline/edrive_upload.py`](pipeline/edrive_upload.py) — eDrive upload helper
-- [`report_email/`](report_email/) — reusable SMTP link-email client
+- [`report_email/`](report_email/) — reusable report email title/body config
 - [`edrive/`](edrive/) — AnyShare eDrive upload client

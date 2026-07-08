@@ -2,7 +2,6 @@ import argparse
 import json
 import logging
 import os
-import smtplib
 import sys
 import tempfile
 from datetime import datetime
@@ -257,63 +256,62 @@ def self_test():
         raise AssertionError("missing email_receiver should be rejected")
     except ValueError as exc:
         assert "EMAIL_RECEIVER" in str(exc)
-    sent = {}
-    class FakeSMTP:
-        def __init__(self, host, port, timeout):
-            sent["host"] = host
-            sent["port"] = port
-            sent["timeout"] = timeout
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            pass
-        def starttls(self):
-            sent["tls"] = True
-        def login(self, username, password):
-            sent["login"] = (username, password)
-        def send_message(self, message):
-            sent["message"] = message
-    class FakeNoAuthSMTP(FakeSMTP):
-        def login(self, username, password):
-            raise smtplib.SMTPNotSupportedError("SMTP AUTH extension not supported by server.")
+    sent = []
+    import pipeline.email_send as email_send_mod
+    import pipeline.transfer as transfer_mod
+
+    soap_calls = []
+    original_login = transfer_mod.zimbra_login
+    original_upload = transfer_mod._zimbra_upload
+    original_soap = transfer_mod._soap_request
+    try:
+        transfer_mod.zimbra_login = lambda cfg: "token"
+        transfer_mod._zimbra_upload = lambda host, token, filename, data, content_type="application/octet-stream": "aid-1"
+        transfer_mod._soap_request = lambda host, body_xml, auth_token="": soap_calls.append((host, body_xml, auth_token))
+        transfer_mod.zimbra_send_email(
+            {"zimbra_host": "zmailbox.example.com", "zimbra_email": "sender@example.com", "zimbra_password": "secret"},
+            "receiver@example.com",
+            "Subject",
+            "Body",
+            [{"filename": "x.zip", "data": b"x", "content_type": "application/zip"}],
+        )
+    finally:
+        transfer_mod.zimbra_login = original_login
+        transfer_mod._zimbra_upload = original_upload
+        transfer_mod._soap_request = original_soap
+    assert "SendMsgRequest" in soap_calls[-1][1]
+    assert 'attach aid="aid-1"' in soap_calls[-1][1]
+
+    original_report_zimbra_send = email_send_mod.zimbra_send_email
+    original_transfer_zimbra_send = transfer_mod.zimbra_send_email
+    email_send_mod.zimbra_send_email = lambda cfg, to, subject, body, attachments=None: sent.append(
+        {"to": to, "subject": subject, "body": body, "attachments": attachments or []}
+    )
+    transfer_mod.zimbra_send_email = email_send_mod.zimbra_send_email
     with tempfile.NamedTemporaryFile("wb") as a, tempfile.NamedTemporaryFile("wb") as b, tempfile.NamedTemporaryFile("wb") as c:
         for f in (a, b, c):
             f.write(b"x")
             f.flush()
         share_url = "https://edrive.example.com/share/abc123"
-        send_report_email(
-            {
-                "email_receiver": "receiver@example.com",
-                "zimbra_host": "zmailbox.example.com",
-                "zimbra_email": "sender@example.com",
-                "zimbra_password": "secret",
-                "zimbra_smtp_port": 2525,
-                "zimbra_smtp_use_tls": True,
-                "zimbra_smtp_use_ssl": False,
-            },
-            share_url,
-            smtp_factory=FakeSMTP,
-        )
-        send_report_email(
-            {
-                "email_receiver": "receiver@example.com",
-                "zimbra_host": "zmailbox.example.com",
-                "zimbra_email": "sender@example.com",
-                "zimbra_password": "secret",
-                "zimbra_smtp_port": 2525,
-                "zimbra_smtp_use_tls": False,
-                "zimbra_smtp_use_ssl": False,
-            },
-            share_url,
-            smtp_factory=FakeNoAuthSMTP,
-        )
+        try:
+            send_report_email(
+                {
+                    "email_receiver": "receiver@example.com",
+                    "zimbra_host": "zmailbox.example.com",
+                    "zimbra_email": "sender@example.com",
+                    "zimbra_password": "secret",
+                },
+                share_url,
+            )
+        finally:
+            email_send_mod.zimbra_send_email = original_report_zimbra_send
     email_cfg = load_email_config()
-    assert sent["message"]["To"] == "receiver@example.com"
-    assert sent["message"]["Subject"] == email_cfg.email_title
-    body = sent["message"].get_body().get_content().strip()
+    assert sent[-1]["to"] == "receiver@example.com"
+    assert sent[-1]["subject"] == email_cfg.email_title
+    body = sent[-1]["body"].strip()
     assert body.startswith(email_cfg.email_body.splitlines()[0])
     assert share_url in body
-    assert len(list(sent["message"].iter_attachments())) == 0
+    assert len(sent[-1]["attachments"]) == 0
     assert parse_transfer_subject("PIPELINE_UPLOAD:20260706_173000") == "20260706_173000"
     assert matches_transfer_message(
         {"zimbra_email": "reports@example.com"},
@@ -338,21 +336,20 @@ def self_test():
             raise AssertionError("unsafe transfer zip should be rejected")
         except ValueError:
             pass
-        send_transfer_from_folder(
-            {
-                "zimbra_host": "zmailbox.example.com",
-                "zimbra_email": "reports@example.com",
-                "zimbra_password": "secret",
-                "zimbra_smtp_port": 2525,
-                "zimbra_smtp_use_tls": False,
-                "zimbra_smtp_use_ssl": False,
-            },
-            run_dir,
-            smtp_factory=FakeSMTP,
-        )
-        assert sent["message"]["To"] == "reports@example.com"
-        assert sent["message"]["Subject"] == "PIPELINE_UPLOAD:20260706_173000"
-        assert len(list(sent["message"].iter_attachments())) == 1
+        try:
+            send_transfer_from_folder(
+                {
+                    "zimbra_host": "zmailbox.example.com",
+                    "zimbra_email": "reports@example.com",
+                    "zimbra_password": "secret",
+                },
+                run_dir,
+            )
+        finally:
+            transfer_mod.zimbra_send_email = original_transfer_zimbra_send
+        assert sent[-1]["to"] == "reports@example.com"
+        assert sent[-1]["subject"] == "PIPELINE_UPLOAD:20260706_173000"
+        assert len(sent[-1]["attachments"]) == 1
     vuln_match_self_test()
     print("self-test ok")
 

@@ -1,17 +1,14 @@
 import html
 import logging
 import posixpath
-import smtplib
+import re
 import urllib.parse
 import urllib.request
 import zipfile
-from email.message import EmailMessage
 from email.utils import parseaddr
 from io import BytesIO
 from pathlib import Path
 import xml.etree.ElementTree as ET
-
-from pipeline.email_send import smtp_config_from_cfg
 
 log = logging.getLogger(__name__)
 
@@ -76,35 +73,81 @@ def make_transfer_zip(folder_path):
     return data.getvalue()
 
 
-def send_transfer_from_folder(cfg, folder_path, smtp_factory=None):
-    require_transfer_config(cfg)
-    folder = Path(folder_path).expanduser().resolve()
-    smtp = smtp_config_from_cfg(cfg)
-    to_addr = transfer_address(cfg)
+def _zimbra_upload(host, token, filename, data, content_type="application/octet-stream"):
+    boundary = "----codex-zimbra-upload"
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("utf-8") + data + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    request = urllib.request.Request(
+        f"https://{host}/service/upload?fmt=raw",
+        data=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Cookie": f"ZM_AUTH_TOKEN={token}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=120) as response:
+        text = response.read().decode("utf-8", errors="replace")
+    match = re.search(r'["\']?aid["\']?\s*[:=]\s*["\']([^"\']+)["\']', text)
+    if match:
+        return match.group(1)
+    quoted = re.findall(r"'([^']+)'", text)
+    if len(quoted) >= 2:
+        return quoted[-1]
+    if not match:
+        raise RuntimeError(f"Zimbra upload failed: attachment id not found in response {text[:300]}")
 
-    message = EmailMessage()
-    message["From"] = smtp.from_addr or smtp.username or to_addr
-    message["To"] = to_addr
-    message["Subject"] = transfer_subject(folder.name)
-    message.set_content(f"Pipeline upload bundle: {folder.name}")
-    message.add_attachment(
-        make_transfer_zip(folder),
-        maintype="application",
-        subtype="zip",
-        filename=f"{folder.name}.zip",
+
+def zimbra_send_email(cfg, to, subject, body, attachments=None):
+    require_transfer_config(cfg)
+    host = _zimbra_host(cfg)
+    token = zimbra_login(cfg)
+    attach_ids = []
+    for item in attachments or []:
+        attach_ids.append(
+            _zimbra_upload(
+                host,
+                token,
+                item["filename"],
+                item["data"],
+                item.get("content_type", "application/octet-stream"),
+            )
+        )
+
+    attach_xml = "".join(f'<attach aid="{html.escape(aid)}"/>' for aid in attach_ids)
+    _soap_request(
+        host,
+        f"""<SendMsgRequest xmlns="urn:zimbraMail">
+  <m>
+    <e t="t" a="{html.escape(str(to).strip())}"/>
+    <su>{html.escape(str(subject or "").strip())}</su>
+    <mp ct="text/plain"><content>{html.escape(str(body or ""))}</content></mp>
+    {attach_xml}
+  </m>
+</SendMsgRequest>""",
+        token,
     )
 
-    smtp_class = smtp_factory or (smtplib.SMTP_SSL if smtp.use_ssl else smtplib.SMTP)
-    with smtp_class(smtp.host, int(smtp.port or 587), timeout=30) as client:
-        if smtp.use_tls and not smtp.use_ssl:
-            client.starttls()
-        if smtp.username and smtp.password:
-            try:
-                client.login(smtp.username, smtp.password)
-            except smtplib.SMTPNotSupportedError:
-                pass
-        client.send_message(message)
 
+def send_transfer_from_folder(cfg, folder_path):
+    require_transfer_config(cfg)
+    folder = Path(folder_path).expanduser().resolve()
+    to_addr = transfer_address(cfg)
+    zimbra_send_email(
+        cfg,
+        to_addr,
+        transfer_subject(folder.name),
+        f"Pipeline upload bundle: {folder.name}",
+        [
+            {
+                "filename": f"{folder.name}.zip",
+                "data": make_transfer_zip(folder),
+                "content_type": "application/zip",
+            }
+        ],
+    )
     log.info("Transfer email sent to %s for %s", to_addr, folder)
     return folder.name
 

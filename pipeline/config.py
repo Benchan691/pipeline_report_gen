@@ -44,9 +44,6 @@ def _apply_env_overrides(cfg):
     cfg["zimbra_host"] = _env_or_cfg(cfg, "ZIMBRA_HOST", "zimbra_host")
     cfg["zimbra_email"] = _env_or_cfg(cfg, "ZIMBRA_EMAIL", "zimbra_email")
     cfg["zimbra_password"] = _env_or_cfg(cfg, "ZIMBRA_PASSWORD", "zimbra_password")
-    cfg["zimbra_smtp_port"] = _env_int_or_cfg(cfg, "ZIMBRA_SMTP_PORT", "zimbra_smtp_port", 587)
-    cfg["zimbra_smtp_use_tls"] = _env_bool_or_cfg(cfg, "ZIMBRA_SMTP_USE_TLS", "zimbra_smtp_use_tls", True)
-    cfg["zimbra_smtp_use_ssl"] = _env_bool_or_cfg(cfg, "ZIMBRA_SMTP_USE_SSL", "zimbra_smtp_use_ssl", False)
 
 
 def normalize_search_provider(provider):
