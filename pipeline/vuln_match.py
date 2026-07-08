@@ -262,8 +262,6 @@ def build_filtered_matches(cfg):
 
 
 def load_filtered_candidates(cfg):
-    from pipeline.mongo import candidates_from_payload
-
     log.info("Matching vulnerabilities against software clusters")
     payload, stats = build_filtered_matches(cfg)
     candidates = candidates_from_payload(payload)

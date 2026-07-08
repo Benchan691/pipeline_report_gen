@@ -5,7 +5,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from pipeline.constants import DEFAULT_CONFIG
 from pipeline.utils import norm_cnvd
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -17,24 +16,6 @@ def _env_or_cfg(cfg, env_key, cfg_key, default=""):
         return str(value).strip()
     if cfg_key in cfg and cfg.get(cfg_key) not in (None, ""):
         return cfg.get(cfg_key)
-    return default
-
-
-def _env_int_or_cfg(cfg, env_key, cfg_key, default):
-    value = os.environ.get(env_key)
-    if value is not None and str(value).strip() != "":
-        return int(value)
-    if cfg_key in cfg and cfg.get(cfg_key) not in (None, ""):
-        return int(cfg.get(cfg_key))
-    return default
-
-
-def _env_bool_or_cfg(cfg, env_key, cfg_key, default):
-    value = os.environ.get(env_key)
-    if value is not None and str(value).strip() != "":
-        return str(value).strip().lower() in ("1", "true", "yes", "on")
-    if cfg_key in cfg and cfg.get(cfg_key) is not None:
-        return bool(cfg.get(cfg_key))
     return default
 
 

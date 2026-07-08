@@ -4,7 +4,7 @@ import sys
 from copy import copy
 
 from pipeline.dependencies import Alignment, get_column_letter, load_workbook
-from pipeline.formatting import excel_row, weekly_row
+from pipeline.formatting import weekly_row
 
 log = logging.getLogger(__name__)
 
@@ -88,36 +88,6 @@ def rebuild_weekly_sheet(ws, cards):
             ws.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=7)
             row_index += 1
     return True
-
-
-def build_excel(cards, cfg):
-    if load_workbook is None:
-        sys.exit("Missing Python package: openpyxl. Run with the bundled Codex Python.")
-    log.info("Building Excel (%d row(s)) -> %s", len(cards), cfg["output_excel"])
-    wb = load_workbook(cfg["excel_template"])
-    ws = wb.active
-    ws.delete_cols(8)
-    styles = []
-    for cell in ws[2]:
-        styles.append({"font": copy(cell.font), "fill": copy(cell.fill), "border": copy(cell.border), "alignment": copy(cell.alignment), "number_format": cell.number_format, "protection": copy(cell.protection)})
-    if ws.max_row > 1:
-        ws.delete_rows(2, ws.max_row - 1)
-    for row_index, card in enumerate(cards, start=2):
-        values = excel_row(card)
-        ws.row_dimensions[row_index].height = row_height(ws, values)
-        for col_index, value in enumerate(values, start=1):
-            cell = ws.cell(row_index, col_index, value)
-            style = styles[col_index - 1]
-            font = copy(style["font"])
-            font.sz = 12
-            cell.font = font
-            cell.fill = copy(style["fill"])
-            cell.border = copy(style["border"])
-            cell.number_format = style["number_format"]
-            cell.protection = copy(style["protection"])
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    wb.save(cfg["output_excel"])
-    log.info("Excel saved: %s", cfg["output_excel"])
 
 
 def build_weekly_excel(cards, cfg):

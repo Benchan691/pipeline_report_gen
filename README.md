@@ -112,12 +112,6 @@ One command runs the full workflow (cluster matching + report generation):
 .venv/bin/python cnvd_docx.py --config config.json
 ```
 
-Optional funnel debug dump:
-
-```bash
-python3 export_vuln_funnel_details.py --config config.json
-```
-
 Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx` and `2026.06.30-07.06_周報_en.docx`).
 
 To upload an existing run folder to eDrive and email the share link:
@@ -142,7 +136,6 @@ Email subject is built as `日期範圍 + email_title`, for example `2026年5月
 - [`pipeline/output.py`](pipeline/output.py) — dated output paths and title dates
 - [`pipeline/docx_report.py`](pipeline/docx_report.py) — Word report builder
 - [`pipeline/excel_report.py`](pipeline/excel_report.py) — Excel report builders
-- [`pipeline/email_send.py`](pipeline/email_send.py) — report notification email helper using Zimbra
 - [`pipeline/edrive_upload.py`](pipeline/edrive_upload.py) — eDrive upload helper
 - [`plugin/zimbra/`](plugin/zimbra/) — reusable Zimbra SOAP client
 - [`edrive/`](edrive/) — AnyShare eDrive upload client

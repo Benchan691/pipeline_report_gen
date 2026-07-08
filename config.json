@@ -1,10 +1,8 @@
 {
   "scrape_days": 7,
   "output_docx": "周報.docx",
-  "output_excel": "周報.xlsx",
   "output_weekly_excel": "本周重要漏洞实例情况.xlsx",
   "docx_template": "templates/report.docx",
-  "excel_template": "templates/report.xlsx",
   "weekly_excel_template": "templates/weekly_disclosure.xlsx",
   "search_provider": "firecrawl",
   "searxng_base_url": "http://localhost:8086",

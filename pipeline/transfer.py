@@ -5,7 +5,7 @@ from email.utils import parseaddr
 from io import BytesIO
 from pathlib import Path
 
-from zimbra import (
+from plugin.zimbra import (
     download_attachment,
     require_zimbra_config,
     zimbra_delete_message,
@@ -36,14 +36,6 @@ def parse_transfer_subject(subject):
     return folder
 
 
-def transfer_address(cfg):
-    return zimbra_email(cfg)
-
-
-def require_transfer_config(cfg, receive=False):
-    require_zimbra_config(cfg)
-
-
 def make_transfer_zip(folder_path):
     folder = Path(folder_path).expanduser().resolve()
     if not folder.is_dir():
@@ -61,9 +53,9 @@ def make_transfer_zip(folder_path):
 
 
 def send_transfer_from_folder(cfg, folder_path):
-    require_transfer_config(cfg)
+    require_zimbra_config(cfg)
     folder = Path(folder_path).expanduser().resolve()
-    to_addr = transfer_address(cfg)
+    to_addr = zimbra_email(cfg)
     zimbra_send_email(
         cfg,
         to_addr,
@@ -86,7 +78,7 @@ def _norm_email(value):
 
 def matches_transfer_message(cfg, message):
     folder = parse_transfer_subject(message.get("subject"))
-    address = _norm_email(transfer_address(cfg))
+    address = _norm_email(zimbra_email(cfg))
     return bool(
         folder
         and address
@@ -126,7 +118,7 @@ def safe_extract_transfer_zip(zip_bytes, output_root, expected_folder):
     return str(target)
 
 def receive_transfer(cfg, deliver_folder):
-    require_transfer_config(cfg, receive=True)
+    require_zimbra_config(cfg)
     host = zimbra_host(cfg)
     token = zimbra_login(cfg)
     folder_id = str(cfg.get("zimbra_folder_id") or "2")

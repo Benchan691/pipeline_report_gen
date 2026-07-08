@@ -1,6 +1,0 @@
-edrive.py
-pyproject.toml
-edrive_anyshare.egg-info/PKG-INFO
-edrive_anyshare.egg-info/SOURCES.txt
-edrive_anyshare.egg-info/dependency_links.txt
-edrive_anyshare.egg-info/top_level.txt

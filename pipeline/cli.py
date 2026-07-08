@@ -21,9 +21,8 @@ from pipeline.evidence import (
     write_evidence,
 )
 from pipeline.excel_report import build_weekly_excel, row_height
-from pipeline.formatting import category, excel_row, format_severity, localized, weekly_row, word_rows
+from pipeline.formatting import category, format_severity, localized, weekly_row, word_rows
 from pipeline.edrive_upload import upload_output_folder_or_exit
-from pipeline.email_send import require_email_config, send_report_email
 from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
 from pipeline.vuln_match import load_filtered_candidates, self_test as vuln_match_self_test
 from pipeline.output import (
@@ -44,10 +43,11 @@ from pipeline.transfer import (
     matches_transfer_message,
     parse_transfer_subject,
     receive_transfer,
-    require_transfer_config,
+    require_zimbra_config,
     safe_extract_transfer_zip,
     send_transfer_from_folder,
     transfer_subject,
+    zimbra_send_email,
 )
 from plugin.zimbra import zimbra as zimbra_mod
 from pipeline.utils import norm_cnvd
@@ -103,6 +103,36 @@ def build_report_outputs(cfg, cards):
     return [cfg["output_docx"], cfg["output_docx_en"], cfg["output_weekly_excel"]]
 
 
+def build_link_body(body, link_url):
+    text = str(body or "Report link below.").rstrip()
+    link_url = str(link_url or "").strip()
+    if not link_url:
+        raise ValueError("Missing share URL for email")
+    return f"{text}\n\n{link_url}"
+
+
+def require_email_config(cfg):
+    receiver = str(cfg.get("email_receiver") or "").strip()
+    missing = []
+    if not receiver:
+        missing.append("EMAIL_RECEIVER in .env")
+    try:
+        require_zimbra_config(cfg)
+    except ValueError as exc:
+        missing.append(str(exc).replace("Missing transfer config: ", ""))
+    if missing:
+        raise ValueError("Missing email config: " + ", ".join(missing))
+
+
+def send_report_email(cfg, share_url, subject=None):
+    zimbra_send_email(
+        cfg,
+        cfg["email_receiver"],
+        subject or str(cfg.get("email_title") or "漏洞報告文件").strip(),
+        build_link_body(cfg.get("email_body"), share_url),
+    )
+
+
 def self_test():
     assert norm_cnvd("cnvd:2026-24916") == "CNVD-2026-24916"
     c1 = {"cnvd_id": "CNVD-2026-1", "cve_id": "CVE-2026-1", "search_id": "CVE-2026-1", "title": "T"}
@@ -110,13 +140,9 @@ def self_test():
     assert "CVE-2026-1" in queries_for_candidate(c1)["what_happened"][0]
     assert "CNVD-2026-2" in queries_for_candidate(c2)["how_to_respond"][0]
     card = {"cnvd_id": "CNVD-1", "cve_id": None, "title": "信息泄露", "what_happened": "敏感信息泄露", "how_to_respond": "修复", "affected_products": ["Microsoft Excel 2016"], "affected_versions": [], "doc": {"details": {"cnvd": {}}}}
-    assert excel_row(card)[:4] == ["-", "Microsoft Excel 2016", "2016", "CNVD-1"]
     card["cluster_label"] = "Microsoft Excel"
-    assert excel_row(card)[0] == "Microsoft Excel"
     assert word_rows(card, "zh")[2][1] == "Microsoft Excel"
     card["cluster_label"] = ""
-    assert excel_row(card)[-1] == "修复"
-    assert len(excel_row(card)) == 8
     assert weekly_row(card)[1] == ""
     assert format_severity("Critical", "zh") == "严重"
     cnnvd_doc = {"code": "2026-32651935", "severity": "High", "details": {"cnnvd": {"cnnvdId": "CNNVD-2026-32651935", "vulName": "T", "cveId": "CVE-2026-1", "vendorName": "V", "productName": "P", "publishDate": "2026-07-01"}}}
@@ -261,7 +287,6 @@ def self_test():
     except ValueError as exc:
         assert "EMAIL_RECEIVER" in str(exc)
     sent = []
-    import pipeline.email_send as email_send_mod
     import pipeline.transfer as transfer_mod
 
     soap_calls = []
@@ -286,12 +311,12 @@ def self_test():
     assert "SendMsgRequest" in soap_calls[-1][1]
     assert 'attach aid="aid-1"' in soap_calls[-1][1]
 
-    original_report_zimbra_send = email_send_mod.zimbra_send_email
+    original_report_zimbra_send = globals()["zimbra_send_email"]
     original_transfer_zimbra_send = transfer_mod.zimbra_send_email
-    email_send_mod.zimbra_send_email = lambda cfg, to, subject, body, attachments=None: sent.append(
+    globals()["zimbra_send_email"] = lambda cfg, to, subject, body, attachments=None: sent.append(
         {"to": to, "subject": subject, "body": body, "attachments": attachments or []}
     )
-    transfer_mod.zimbra_send_email = email_send_mod.zimbra_send_email
+    transfer_mod.zimbra_send_email = globals()["zimbra_send_email"]
     with tempfile.NamedTemporaryFile("wb") as a, tempfile.NamedTemporaryFile("wb") as b, tempfile.NamedTemporaryFile("wb") as c:
         for f in (a, b, c):
             f.write(b"x")
@@ -310,7 +335,7 @@ def self_test():
                 share_url,
             )
         finally:
-            email_send_mod.zimbra_send_email = original_report_zimbra_send
+            globals()["zimbra_send_email"] = original_report_zimbra_send
     assert sent[-1]["to"] == "receiver@example.com"
     assert sent[-1]["subject"] == "漏洞報告文件"
     body = sent[-1]["body"].strip()
@@ -436,7 +461,7 @@ def main():
         check_dependencies()
         log.info("Starting CNVD report pipeline (config=%s)", args.config)
         try:
-            require_transfer_config(cfg)
+            require_zimbra_config(cfg)
         except ValueError as exc:
             sys.exit(str(exc))
     log.info(

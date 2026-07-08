@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import base64
 import json
-import mimetypes
 import os
 import re
 import subprocess
 import tempfile
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -713,4 +711,3 @@ def upload_folder(
         uploaded_files=uploaded_files,
         created_dirs=created_dirs,
     )
-

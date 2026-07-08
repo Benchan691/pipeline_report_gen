@@ -1,7 +1,5 @@
-import re
-
 from pipeline.constants import DEFAULT_REPORT_LANG, LOCALES
-from pipeline.utils import one_line, unique, val
+from pipeline.utils import one_line, val
 
 
 def localized(card, field, lang):
@@ -50,28 +48,6 @@ def product_text(card):
 
 def asset_text(card):
     return val(card.get("cluster_label") or card.get("matched_software"))
-
-
-def affected_version_text(card):
-    versions = card.get("affected_versions") or []
-    if versions:
-        return val(versions)
-    text = product_text(card)
-    matches = re.findall(r"\b(?:v(?:ersion)?\s*)?\d+(?:\.\d+){0,3}\b", text, re.I)
-    return "\n".join(unique(matches)) or "-"
-
-
-def excel_row(card):
-    return [
-        asset_text(card),
-        product_text(card),
-        affected_version_text(card),
-        card.get("cve_id") or card["cnvd_id"],
-        localized(card, "title", DEFAULT_REPORT_LANG),
-        category(card),
-        localized(card, "what_happened", DEFAULT_REPORT_LANG),
-        localized(card, "how_to_respond", DEFAULT_REPORT_LANG),
-    ]
 
 
 def word_rows(card, lang):
