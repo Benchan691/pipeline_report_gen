@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 
 from report_email import load_email_config
+from pipeline.constants import LOCALES
 from pipeline.formatting import card_date
 
 
