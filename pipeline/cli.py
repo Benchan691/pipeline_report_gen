@@ -23,7 +23,9 @@ from pipeline.evidence import (
 )
 from pipeline.excel_report import build_weekly_excel, row_height
 from pipeline.formatting import category, excel_row, format_severity, localized, weekly_row, word_rows
-from pipeline.mailer import require_email_config, send_report_email
+from pipeline.edrive_upload import upload_output_folder_or_exit
+from pipeline.email_send import require_email_config, send_report_email
+from report_email import load_email_config
 from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
 from pipeline.vuln_match import load_filtered_candidates, self_test as vuln_match_self_test
 from pipeline.output import (
@@ -213,7 +215,7 @@ def self_test():
         assert resolve_output_folder(email_cfg, run_dir) == run_dir
         paths = list_report_paths(run_dir)
         assert len(paths) == 3
-        assert email_subject_from_paths(paths) == "2026年6月30日-7月6日報告"
+        assert email_subject_from_paths(paths) == "2026年6月30日-7月6日漏洞報告文件"
     if load_workbook is not None:
         ws = load_workbook(cfg["weekly_excel_template"]).active
         long_weekly_values = ["", "", "CVE-1", "CNVD-1", "很长的影响产品文本" * 20, "漏洞", "严重"]
@@ -238,7 +240,7 @@ def self_test():
         require_email_config({"SMTP_HOST": "smtp.example.com", "SMTP_USERNAME": "sender@example.com"})
         raise AssertionError("missing email_receiver should be rejected")
     except ValueError as exc:
-        assert "email_receiver" in str(exc)
+        assert "EMAIL_RECEIVER" in str(exc)
     sent = {}
     class FakeSMTP:
         def __init__(self, host, port, timeout):
@@ -262,11 +264,10 @@ def self_test():
         for f in (a, b, c):
             f.write(b"x")
             f.flush()
+        share_url = "https://edrive.example.com/share/abc123"
         send_report_email(
             {
                 "email_receiver": "receiver@example.com",
-                "email_title": "報告",
-                "email_body": "附件為本周報告。",
                 "SMTP_HOST": "smtp.example.com",
                 "SMTP_PORT": 2525,
                 "SMTP_USERNAME": "sender@example.com",
@@ -275,14 +276,12 @@ def self_test():
                 "SMTP_USE_TLS": True,
                 "SMTP_USE_SSL": False,
             },
-            [a.name, b.name, c.name],
+            share_url,
             smtp_factory=FakeSMTP,
         )
         send_report_email(
             {
                 "email_receiver": "receiver@example.com",
-                "email_title": "報告",
-                "email_body": "附件為本周報告。",
                 "SMTP_HOST": "smtp.example.com",
                 "SMTP_PORT": 2525,
                 "SMTP_USERNAME": "sender@example.com",
@@ -291,13 +290,16 @@ def self_test():
                 "SMTP_USE_TLS": False,
                 "SMTP_USE_SSL": False,
             },
-            [a.name, b.name, c.name],
+            share_url,
             smtp_factory=FakeNoAuthSMTP,
         )
+    email_cfg = load_email_config()
     assert sent["message"]["To"] == "receiver@example.com"
-    assert sent["message"]["Subject"] == "報告"
-    assert sent["message"].get_body().get_content().strip() == "附件為本周報告。"
-    assert len(list(sent["message"].iter_attachments())) == 3
+    assert sent["message"]["Subject"] == email_cfg.email_title
+    body = sent["message"].get_body().get_content().strip()
+    assert body.startswith(email_cfg.email_body.splitlines()[0])
+    assert share_url in body
+    assert len(list(sent["message"].iter_attachments())) == 0
     vuln_match_self_test()
     print("self-test ok")
 
@@ -309,10 +311,10 @@ def send_email_from_folder(cfg, folder_path):
         paths = list_report_paths(folder)
     except ValueError as exc:
         sys.exit(str(exc))
-    subject = build_email_subject(cfg, paths=paths, folder=folder)
-    send_report_email(cfg, paths, subject)
-    log.info("Email sent to %s (%d files from %s)", cfg["email_receiver"], len(paths), folder)
-    log.info("Attached: %s", ", ".join(os.path.basename(path) for path in paths))
+    subject = build_email_subject(paths=paths, folder=folder)
+    result = upload_output_folder_or_exit(folder, required=True)
+    send_report_email(cfg, result.share_url, subject)
+    log.info("Email sent to %s with eDrive link (%s)", cfg["email_receiver"], folder)
 
 
 def main():
@@ -324,7 +326,7 @@ def main():
     parser.add_argument(
         "--send-email",
         metavar="FOLDER",
-        help="email .docx/.xlsx report files from an existing folder under output_root (e.g. 20260706_173000)",
+        help="upload an existing folder to eDrive and email the share link (e.g. 20260706_173000)",
     )
     args = parser.parse_args()
     if args.self_test:
@@ -374,6 +376,7 @@ def main():
         cards = load_existing_cards_or_exit(cfg, candidates)
         cards = maybe_translate_cards(cards, cfg, write_back=True)
         paths = build_report_outputs(cfg, cards)
+        upload_output_folder_or_exit(cfg["output_dir"], required=False)
         log.info("Done. Outputs: %s, %s, %s", *paths)
         return
 
@@ -390,6 +393,7 @@ def main():
         cards = maybe_translate_cards(cards, cfg, write_back=True)
 
     paths = build_report_outputs(cfg, cards)
-    send_report_email(cfg, paths, build_email_subject(cfg, cards=cards))
-    log.info("Email sent to %s", cfg["email_receiver"])
+    result = upload_output_folder_or_exit(cfg["output_dir"], required=True)
+    send_report_email(cfg, result.share_url, build_email_subject(cards=cards))
+    log.info("Email sent to %s with eDrive link", cfg["email_receiver"])
     log.info("Done. Outputs: %s, %s, %s", *paths)

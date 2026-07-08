@@ -85,7 +85,7 @@ def parse_firecrawl_results(body):
 def firecrawl_search(cfg, query, timeout=30):
     api_key = str(cfg.get("firecrawl_api_key") or "").strip()
     if not api_key:
-        sys.exit("Missing config key: firecrawl_api_key")
+        sys.exit("Missing FIRECRAWL_API_KEY in .env")
     req = urllib.request.Request(
         cfg["firecrawl_base_url"].rstrip("/") + "/v2/search",
         data=json.dumps({"query": query, "limit": int(cfg["firecrawl_max_results"]), "sources": ["web"]}).encode("utf-8"),

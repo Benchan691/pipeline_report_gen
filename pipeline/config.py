@@ -1,8 +1,53 @@
 import json
+import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from pipeline.constants import DEFAULT_CONFIG
 from pipeline.utils import norm_cnvd
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _env_or_cfg(cfg, env_key, cfg_key, default=""):
+    value = os.environ.get(env_key)
+    if value is not None and str(value).strip() != "":
+        return str(value).strip()
+    if cfg_key in cfg and cfg.get(cfg_key) not in (None, ""):
+        return cfg.get(cfg_key)
+    return default
+
+
+def _env_int_or_cfg(cfg, env_key, cfg_key, default):
+    value = os.environ.get(env_key)
+    if value is not None and str(value).strip() != "":
+        return int(value)
+    if cfg_key in cfg and cfg.get(cfg_key) not in (None, ""):
+        return int(cfg.get(cfg_key))
+    return default
+
+
+def _env_bool_or_cfg(cfg, env_key, cfg_key, default):
+    value = os.environ.get(env_key)
+    if value is not None and str(value).strip() != "":
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+    if cfg_key in cfg and cfg.get(cfg_key) is not None:
+        return bool(cfg.get(cfg_key))
+    return default
+
+
+def _apply_env_overrides(cfg):
+    cfg["firecrawl_api_key"] = _env_or_cfg(cfg, "FIRECRAWL_API_KEY", "firecrawl_api_key")
+    cfg["email_receiver"] = _env_or_cfg(cfg, "EMAIL_RECEIVER", "email_receiver")
+    cfg["SMTP_HOST"] = _env_or_cfg(cfg, "SMTP_HOST", "SMTP_HOST")
+    cfg["SMTP_PORT"] = _env_int_or_cfg(cfg, "SMTP_PORT", "SMTP_PORT", 587)
+    cfg["SMTP_USERNAME"] = _env_or_cfg(cfg, "SMTP_USERNAME", "SMTP_USERNAME")
+    cfg["SMTP_PASSWORD"] = _env_or_cfg(cfg, "SMTP_PASSWORD", "SMTP_PASSWORD")
+    cfg["SMTP_FROM"] = _env_or_cfg(cfg, "SMTP_FROM", "SMTP_FROM")
+    cfg["SMTP_USE_TLS"] = _env_bool_or_cfg(cfg, "SMTP_USE_TLS", "SMTP_USE_TLS", True)
+    cfg["SMTP_USE_SSL"] = _env_bool_or_cfg(cfg, "SMTP_USE_SSL", "SMTP_USE_SSL", False)
 
 
 def normalize_search_provider(provider):
@@ -15,6 +60,7 @@ def normalize_search_provider(provider):
 
 
 def load_config(path, email_only=False):
+    load_dotenv(PROJECT_ROOT / ".env")
     with open(path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
     if not email_only:
@@ -32,7 +78,6 @@ def load_config(path, email_only=False):
     cfg.setdefault("searxng_base_url", "")
     cfg.setdefault("searxng_max_results", 5)
     cfg.setdefault("firecrawl_base_url", "https://api.firecrawl.dev")
-    cfg.setdefault("firecrawl_api_key", "")
     cfg.setdefault("firecrawl_max_results", cfg["searxng_max_results"])
     cfg.setdefault("search_fallback_firecrawl", True)
     cfg.setdefault("weekly_excel_template", "templates/weekly_disclosure.xlsx")
@@ -42,16 +87,7 @@ def load_config(path, email_only=False):
     cfg.setdefault("use_filtered_vuln_ids", False)
     cfg.setdefault("output_date_prefix", True)
     cfg.setdefault("output_root", "output")
-    cfg.setdefault("email_receiver", "")
-    cfg.setdefault("email_title", "報告")
-    cfg.setdefault("email_body", "Generated report files are attached.")
-    cfg.setdefault("SMTP_HOST", "")
-    cfg.setdefault("SMTP_PORT", 587)
-    cfg.setdefault("SMTP_USERNAME", "")
-    cfg.setdefault("SMTP_PASSWORD", "")
-    cfg.setdefault("SMTP_FROM", "")
-    cfg.setdefault("SMTP_USE_TLS", True)
-    cfg.setdefault("SMTP_USE_SSL", False)
+    _apply_env_overrides(cfg)
     if not email_only:
         cfg["search_provider"] = normalize_search_provider(cfg["search_provider"])
     return cfg

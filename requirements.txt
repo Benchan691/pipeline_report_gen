@@ -1,2 +1,5 @@
 python-docx
 openpyxl
+python-dotenv
+-e ./edrive
+-e ./report_email

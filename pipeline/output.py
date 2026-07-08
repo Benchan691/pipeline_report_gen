@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 
-from pipeline.constants import LOCALES
+from report_email import load_email_config
 from pipeline.formatting import card_date
 
 
@@ -126,8 +126,8 @@ def email_date_range_from_paths(paths, folder=None):
     return _format_zh_date(datetime.now().strftime("%Y-%m-%d"))
 
 
-def build_email_subject(cfg, cards=None, paths=None, folder=None):
-    title = str(cfg.get("email_title") or "報告").strip()
+def build_email_subject(cards=None, paths=None, folder=None):
+    title = load_email_config().email_title
     date_range = email_date_range(cards) if cards else email_date_range_from_paths(paths or [], folder)
     return f"{date_range}{title}"
 
@@ -163,4 +163,4 @@ def list_report_paths(folder):
 
 
 def email_subject_from_paths(paths, folder=None):
-    return build_email_subject({}, paths=paths, folder=folder)
+    return build_email_subject(paths=paths, folder=folder)

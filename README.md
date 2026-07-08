@@ -7,7 +7,7 @@ Pipeline:
 3. Search SearXNG or Firecrawl by related CVE, or by CNVD ID when no CVE exists.
 4. Extract evidence cards with llama-server.
 5. Save `cnvd_evidence_cards.json`.
-6. Fill the Word and Excel templates and email the outputs.
+6. Fill the Word and Excel templates, upload the output folder to eDrive, and email the share link.
 
 Templates live in `templates/`. Each run writes three files based on the basename paths in `config.json` (for example `周報.docx`, `周報_en.docx`, `本周重要漏洞实例情况.xlsx`). When `output_date_prefix` is true (default), filenames are auto-prefixed with the report publish-date range, e.g. `2026.06.30-07.06_周報.docx` and `2026.06.30-07.06_周報_en.docx`.
 
@@ -21,32 +21,64 @@ Languages are hardcoded in the pipeline: Chinese and English DOCX files are alwa
 - SearXNG JSON search API, default `http://localhost:8086`
 - Firecrawl API key when using Firecrawl or SearXNG fallback
 - llama-server, default `http://100.102.169.17:8080`
-- Python with `python-docx` and `openpyxl`
+- Python with `python-docx`, `openpyxl`, and `python-dotenv`
+- Local [`edrive`](edrive) and [`report_email`](report_email) packages (installed via `requirements.txt`)
 
 ```bash
+pip install -r requirements.txt
 PY=/Users/chankokpan/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3
 $PY cnvd_docx.py --self-test
 ```
 
 ## Config
 
-Edit `config.json` (copy from [`config.example.json`](config.example.json)):
+Edit [`config.json`](config.json) for pipeline settings (search, AI, output paths, etc.).
+
+Email title and body live in [`report_email/config.json`](report_email/config.json):
+
+```json
+{
+  "email_title": "漏洞報告文件",
+  "email_body": "各位好：\n本週漏洞報告連結如下，敬請查閱。\n..."
+}
+```
+
+Example `config.json` fields:
 
 ```json
 {
   "scrape_days": 7,
   "search_provider": "searxng",
   "searxng_base_url": "http://localhost:8086",
-  "firecrawl_api_key": "fc-...",
   "evidence_json": "cnvd_evidence_cards.json",
   "output_docx": "report.docx",
-  "output_weekly_excel": "weekly_disclosure.xlsx",
-  "email_title": "報告",
-  "email_body": "附件為本周報告。"
+  "output_weekly_excel": "weekly_disclosure.xlsx"
 }
 ```
 
-Set `"search_provider": "firecrawl"` to use Firecrawl directly. With SearXNG as the provider, Firecrawl is used as a fallback when SearXNG returns no usable results and `firecrawl_api_key` is configured.
+## Environment (`.env`)
+
+Copy [`.env.example`](.env.example) to `.env` and set:
+
+- `FIRECRAWL_API_KEY` — Firecrawl API key (required when `search_provider` is `firecrawl`, or when SearXNG fallback is enabled)
+- `EMAIL_RECEIVER` — recipient email address
+- `SMTP_HOST` — SMTP server hostname
+- `SMTP_PORT` — SMTP server port (default `587`)
+- `SMTP_USERNAME` — SMTP login username
+- `SMTP_PASSWORD` — SMTP login password
+- `SMTP_FROM` — visible sender address (falls back to `SMTP_USERNAME` if empty)
+- `SMTP_USE_TLS` — use STARTTLS (`true` / `false`, default `true`)
+- `SMTP_USE_SSL` — use SMTP SSL (`true` / `false`, default `false`)
+- `EDRIVE_USERNAME` — eDrive account
+- `EDRIVE_PASSWORD` — eDrive password
+- `EDRIVE_REMOTE_PATH` — parent folder on eDrive (each run uploads to `{EDRIVE_REMOTE_PATH}/{run_folder}`)
+- `EDRIVE_BASE_URL` — eDrive server URL (e.g. `https://edrive.citictel-cpc.com`)
+
+After report generation, the pipeline uploads the timestamped output folder to eDrive. When email is sent, the message contains the eDrive share link instead of file attachments.
+
+`--build-reports` uploads when `.env` is configured but does not send email. Upload is skipped with a log message when eDrive credentials are missing.
+
+Set `"search_provider": "firecrawl"` to use Firecrawl directly. With SearXNG as the provider, Firecrawl is used as a fallback when SearXNG returns no usable results and `FIRECRAWL_API_KEY` is set in `.env`.
 
 `scrape_days` loads every CNVD in MongoDB whose `scraped_at` falls within the last N days. You can still pass an explicit `cnvd_ids` list instead to override the window query.
 
@@ -86,13 +118,13 @@ python3 export_vuln_funnel_details.py --config config.json
 
 Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx` and `2026.06.30-07.06_周報_en.docx`).
 
-To email report files from an existing run folder under `output_root`:
+To upload an existing run folder to eDrive and email the share link:
 
 ```bash
 .venv/bin/python cnvd_docx.py --config config.json --send-email 20260706_173000
 ```
 
-This attaches every `.docx` and `.xlsx` file in that folder. You can also pass an absolute path or a path already under `output/`.
+This uploads the folder under `output_root` to eDrive and emails the share URL. You can also pass an absolute path or a path already under `output/`.
 
 Email subject is built as `日期範圍 + email_title`, for example `2026年5月20日-5月26日報告`.
 
@@ -108,3 +140,7 @@ Email subject is built as `日期範圍 + email_title`, for example `2026年5月
 - [`pipeline/output.py`](pipeline/output.py) — dated output paths and title dates
 - [`pipeline/docx_report.py`](pipeline/docx_report.py) — Word report builder
 - [`pipeline/excel_report.py`](pipeline/excel_report.py) — Excel report builders
+- [`pipeline/email_send.py`](pipeline/email_send.py) — bridge from pipeline config to `report_email`
+- [`pipeline/edrive_upload.py`](pipeline/edrive_upload.py) — eDrive upload helper
+- [`report_email/`](report_email/) — reusable SMTP link-email client
+- [`edrive/`](edrive/) — AnyShare eDrive upload client

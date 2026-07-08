@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: edrive-anyshare
+Version: 1.0.0
+Summary: AnyShare eDrive login and folder upload client
+Requires-Python: >=3.9

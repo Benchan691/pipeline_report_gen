@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edrive-anyshare"
+version = "1.0.0"
+description = "AnyShare eDrive login and folder upload client"
+requires-python = ">=3.9"
+
+[tool.setuptools]
+py-modules = ["edrive"]
