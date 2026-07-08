@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pipeline.constants import LOCALES
 from pipeline.formatting import card_date
@@ -14,7 +14,33 @@ def card_publish_dates(cards):
     return sorted(dates)
 
 
-def report_date_prefix(cards):
+def configured_date_window(cfg, now=None):
+    cfg = cfg or {}
+    now = now or datetime.now()
+    days = cfg.get("vuln_match_scrape_days") if cfg.get("use_filtered_vuln_ids") else cfg.get("scrape_days")
+    if days in (None, ""):
+        return None
+    days = int(days)
+    if days < 1:
+        return None
+    end = now.date()
+    start = end - timedelta(days=days - 1)
+    return start.isoformat(), end.isoformat()
+
+
+def report_date_prefix(cards, cfg=None, now=None):
+    window = configured_date_window(cfg, now)
+    dates = list(window) if window else card_publish_dates(cards)
+    if not dates:
+        return (now or datetime.now()).strftime("%Y.%m.%d")
+    start, end = dates[0], dates[-1]
+    start_fmt = f"{start[:4]}.{start[5:7]}.{start[8:10]}"
+    if start == end:
+        return start_fmt
+    return f"{start_fmt}-{end[5:7]}.{end[8:10]}"
+
+
+def legacy_report_date_prefix(cards):
     dates = card_publish_dates(cards)
     if not dates:
         return datetime.now().strftime("%Y.%m.%d")
@@ -54,7 +80,7 @@ def create_run_output_dir(root, now=None):
 def apply_dated_output_paths(cfg, cards):
     if not cfg.get("output_date_prefix", True):
         return
-    prefix = report_date_prefix(cards)
+    prefix = report_date_prefix(cards, cfg=cfg)
     for key in ("output_docx", "output_weekly_excel"):
         if cfg.get(key):
             cfg[key] = apply_dated_output_path(prefix, cfg[key])
@@ -72,11 +98,12 @@ def apply_run_output_paths(cfg, cards, now=None):
     return output_dir
 
 
-def title_date(cards, lang):
+def title_date(cards, lang, cfg=None, now=None):
     locale = LOCALES[lang]
-    dates = card_publish_dates(cards)
+    window = configured_date_window(cfg, now)
+    dates = list(window) if window else card_publish_dates(cards)
     if not dates:
-        return datetime.now().strftime(locale["title_fallback"])
+        return (now or datetime.now()).strftime(locale["title_fallback"])
     start, end = dates[0], dates[-1]
     return locale["title_range"].format(y1=start[:4], m1=start[5:7], d1=start[8:10], m2=end[5:7], d2=end[8:10])
 
@@ -96,10 +123,11 @@ def _format_zh_date_range(start, end=None):
     return f"{start_dt.year}年{start_dt.month}月{start_dt.day}日-{end_dt.year}年{end_dt.month}月{end_dt.day}日"
 
 
-def email_date_range(cards):
-    dates = card_publish_dates(cards)
+def email_date_range(cards, cfg=None, now=None):
+    window = configured_date_window(cfg, now)
+    dates = list(window) if window else card_publish_dates(cards)
     if not dates:
-        return _format_zh_date(datetime.now().strftime("%Y-%m-%d"))
+        return _format_zh_date((now or datetime.now()).strftime("%Y-%m-%d"))
     start, end = dates[0], dates[-1]
     return _format_zh_date_range(start, end)
 
@@ -128,7 +156,9 @@ def email_date_range_from_paths(paths, folder=None):
 
 def build_email_subject(cards=None, paths=None, folder=None, cfg=None):
     title = str((cfg or {}).get("email_title") or "漏洞報告文件").strip()
-    date_range = email_date_range(cards) if cards else email_date_range_from_paths(paths or [], folder)
+    date_range = email_date_range(cards, cfg=cfg) if cards else (
+        email_date_range([], cfg=cfg) if configured_date_window(cfg) else email_date_range_from_paths(paths or [], folder)
+    )
     return f"{date_range}{title}"
 
 

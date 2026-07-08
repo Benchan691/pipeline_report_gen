@@ -60,7 +60,7 @@ def build_docx(cards, cfg, lang, output_path):
     log.info("Building DOCX (%s, %d table(s)) -> %s", lang, len(cards), output_path)
     doc = Document(cfg["docx_template"])
     title = next((p for p in doc.paragraphs if p.text.strip()), doc.paragraphs[0])
-    replace_text(title, title_date(cards, lang))
+    replace_text(title, title_date(cards, lang, cfg=cfg))
     ensure_table_count(doc, len(cards))
     for index, (table, card) in enumerate(zip(doc.tables, cards)):
         fill_table(table, card, lang)

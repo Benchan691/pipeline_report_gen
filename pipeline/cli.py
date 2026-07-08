@@ -37,6 +37,7 @@ from pipeline.output import (
     list_report_paths,
     report_date_prefix,
     resolve_output_folder,
+    title_date,
 )
 from pipeline import search as search_mod
 from pipeline.search import parse_firecrawl_results, queries_for_candidate, web_search
@@ -208,6 +209,9 @@ def self_test():
         {"source": "cnnvd", "doc": {"details": {"cnnvd": {"publishDate": "2026-07-06"}}}},
     ]
     assert report_date_prefix(dated_cards) == "2026.06.30-07.06"
+    week_cfg = {"use_filtered_vuln_ids": True, "vuln_match_scrape_days": 7}
+    assert report_date_prefix(dated_cards, cfg=week_cfg, now=datetime(2026, 7, 8, 12, 0, 0)) == "2026.07.02-07.08"
+    assert title_date(dated_cards, "zh", cfg=week_cfg, now=datetime(2026, 7, 8, 12, 0, 0)) == "2026年07.02-07.08最新漏洞情报"
     assert apply_dated_output_path("2026.06.30-07.06", "周報.docx") == "2026.06.30-07.06_周報.docx"
     assert docx_path_for_lang("2026.06.30-07.06_周報.docx", "en") == "2026.06.30-07.06_周報_en.docx"
     bilingual_card = {
@@ -377,12 +381,13 @@ def self_test():
         for name in ("2026.06.30-07.06_周報.docx", "2026.06.30-07.06_周報_en.docx", "2026.06.30-07.06_本周重要漏洞实例情况.xlsx"):
             with open(os.path.join(run_dir, name), "wb") as f:
                 f.write(b"x")
-        email_cfg = {"output_root": output_root}
+        email_cfg = {"output_root": output_root, "use_filtered_vuln_ids": True, "vuln_match_scrape_days": 7}
         assert resolve_output_folder(email_cfg, "20260706_173000") == run_dir
         assert resolve_output_folder(email_cfg, run_dir) == run_dir
         paths = list_report_paths(run_dir)
         assert len(paths) == 3
         assert email_subject_from_paths(paths) == "2026年6月30日-7月6日漏洞報告文件"
+        assert build_email_subject(cfg=week_cfg) == "2026年7月2日-7月8日漏洞報告文件"
     if load_workbook is not None:
         ws = load_workbook(cfg["weekly_excel_template"]).active
         assert row_height(ws, ["", "", "", "", "Microsoft\nEdge", "", ""]) > 30
