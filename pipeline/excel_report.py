@@ -13,14 +13,18 @@ def row_height(ws, values):
     lines = 1
     for col_index, value in enumerate(values, start=1):
         width = ws.column_dimensions[get_column_letter(col_index)].width or 12
+        cell_lines = 0
         for part in str(value or "").splitlines() or [""]:
-            lines = max(lines, math.ceil(len(part) / max(width * 0.9, 8)))
-    return min(180, max(30, lines * 18))
+            cell_lines += max(1, math.ceil(len(part) / max(width * 0.9, 8)))
+        lines = max(lines, cell_lines)
+    return min(180, max(30, lines * 21))
 
 
 def copy_cell(src, dst, value=None):
     dst.value = value
-    dst.font = copy(src.font)
+    font = copy(src.font)
+    font.sz = 12
+    dst.font = font
     dst.fill = copy(src.fill)
     dst.border = copy(src.border)
     dst.number_format = src.number_format
@@ -68,8 +72,8 @@ def rebuild_weekly_sheet(ws, cards):
             for col_index, value in enumerate(values, start=1):
                 copy_cell(source_cells[col_index - 1], ws.cell(row_index, col_index), value)
                 ws.cell(row_index, col_index).alignment = Alignment(
-                    horizontal=ws.cell(row_index, col_index).alignment.horizontal,
-                    vertical=ws.cell(row_index, col_index).alignment.vertical,
+                    horizontal="center",
+                    vertical="center",
                     wrap_text=True,
                 )
             ws.row_dimensions[row_index].height = row_height(ws, values) if offset < len(cards) else source_height
@@ -104,12 +108,14 @@ def build_excel(cards, cfg):
         for col_index, value in enumerate(values, start=1):
             cell = ws.cell(row_index, col_index, value)
             style = styles[col_index - 1]
-            cell.font = copy(style["font"])
+            font = copy(style["font"])
+            font.sz = 12
+            cell.font = font
             cell.fill = copy(style["fill"])
             cell.border = copy(style["border"])
             cell.number_format = style["number_format"]
             cell.protection = copy(style["protection"])
-            cell.alignment = Alignment(horizontal=style["alignment"].horizontal, vertical=style["alignment"].vertical, wrap_text=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     wb.save(cfg["output_excel"])
     log.info("Excel saved: %s", cfg["output_excel"])
 

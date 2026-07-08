@@ -24,7 +24,6 @@ from pipeline.excel_report import build_weekly_excel, row_height
 from pipeline.formatting import category, excel_row, format_severity, localized, weekly_row, word_rows
 from pipeline.edrive_upload import upload_output_folder_or_exit
 from pipeline.email_send import require_email_config, send_report_email
-from report_email import load_email_config
 from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
 from pipeline.vuln_match import load_filtered_candidates, self_test as vuln_match_self_test
 from pipeline.output import (
@@ -50,6 +49,7 @@ from pipeline.transfer import (
     send_transfer_from_folder,
     transfer_subject,
 )
+from plugin.zimbra import zimbra as zimbra_mod
 from pipeline.utils import norm_cnvd
 
 log = logging.getLogger(__name__)
@@ -227,6 +227,7 @@ def self_test():
         assert email_subject_from_paths(paths) == "2026年6月30日-7月6日漏洞報告文件"
     if load_workbook is not None:
         ws = load_workbook(cfg["weekly_excel_template"]).active
+        assert row_height(ws, ["", "", "", "", "Microsoft\nEdge", "", ""]) > 30
         long_weekly_values = ["", "", "CVE-1", "CNVD-1", "很长的影响产品文本" * 20, "漏洞", "严重"]
         assert row_height(ws, long_weekly_values) > 19.5
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -245,6 +246,9 @@ def self_test():
             assert weekly_ws.cell(first_block.min_row + 1, 3).value == "CVE-2"
             assert weekly_ws.cell(first_block.min_row, 7).value == "严重"
             assert weekly_ws.row_dimensions[first_block.min_row].height > 19.5
+            assert all(weekly_ws.cell(first_block.min_row, col).alignment.vertical == "center" for col in range(1, 8))
+            assert all(weekly_ws.cell(first_block.min_row, col).alignment.horizontal == "center" for col in range(1, 8))
+            assert all(weekly_ws.cell(first_block.min_row, col).font.sz == 12 for col in range(1, 8))
     try:
         require_email_config(
             {
@@ -261,13 +265,13 @@ def self_test():
     import pipeline.transfer as transfer_mod
 
     soap_calls = []
-    original_login = transfer_mod.zimbra_login
-    original_upload = transfer_mod._zimbra_upload
-    original_soap = transfer_mod._soap_request
+    original_login = zimbra_mod.zimbra_login
+    original_upload = zimbra_mod.upload_attachment
+    original_soap = zimbra_mod.soap_request
     try:
-        transfer_mod.zimbra_login = lambda cfg: "token"
-        transfer_mod._zimbra_upload = lambda host, token, filename, data, content_type="application/octet-stream": "aid-1"
-        transfer_mod._soap_request = lambda host, body_xml, auth_token="": soap_calls.append((host, body_xml, auth_token))
+        zimbra_mod.zimbra_login = lambda cfg: "token"
+        zimbra_mod.upload_attachment = lambda host, token, filename, data, content_type="application/octet-stream": "aid-1"
+        zimbra_mod.soap_request = lambda host, body_xml, auth_token="": soap_calls.append((host, body_xml, auth_token))
         transfer_mod.zimbra_send_email(
             {"zimbra_host": "zmailbox.example.com", "zimbra_email": "sender@example.com", "zimbra_password": "secret"},
             "receiver@example.com",
@@ -276,9 +280,9 @@ def self_test():
             [{"filename": "x.zip", "data": b"x", "content_type": "application/zip"}],
         )
     finally:
-        transfer_mod.zimbra_login = original_login
-        transfer_mod._zimbra_upload = original_upload
-        transfer_mod._soap_request = original_soap
+        zimbra_mod.zimbra_login = original_login
+        zimbra_mod.upload_attachment = original_upload
+        zimbra_mod.soap_request = original_soap
     assert "SendMsgRequest" in soap_calls[-1][1]
     assert 'attach aid="aid-1"' in soap_calls[-1][1]
 
@@ -297,6 +301,8 @@ def self_test():
             send_report_email(
                 {
                     "email_receiver": "receiver@example.com",
+                    "email_title": "漏洞報告文件",
+                    "email_body": "各位好：\n本週漏洞報告連結如下，敬請查閱。\n如有任何問題或需要進一步說明，請隨時告知。\n謝謝。",
                     "zimbra_host": "zmailbox.example.com",
                     "zimbra_email": "sender@example.com",
                     "zimbra_password": "secret",
@@ -305,11 +311,10 @@ def self_test():
             )
         finally:
             email_send_mod.zimbra_send_email = original_report_zimbra_send
-    email_cfg = load_email_config()
     assert sent[-1]["to"] == "receiver@example.com"
-    assert sent[-1]["subject"] == email_cfg.email_title
+    assert sent[-1]["subject"] == "漏洞報告文件"
     body = sent[-1]["body"].strip()
-    assert body.startswith(email_cfg.email_body.splitlines()[0])
+    assert body.startswith("各位好：")
     assert share_url in body
     assert len(sent[-1]["attachments"]) == 0
     assert parse_transfer_subject("PIPELINE_UPLOAD:20260706_173000") == "20260706_173000"
@@ -361,7 +366,7 @@ def send_email_from_folder(cfg, folder_path):
         paths = list_report_paths(folder)
     except ValueError as exc:
         sys.exit(str(exc))
-    subject = build_email_subject(paths=paths, folder=folder)
+    subject = build_email_subject(paths=paths, folder=folder, cfg=cfg)
     result = upload_output_folder_or_exit(folder, required=True)
     send_report_email(cfg, result.share_url, subject)
     log.info("Email sent to %s with eDrive link (%s)", cfg["email_receiver"], folder)

@@ -85,6 +85,8 @@ def load_config(path, email_only=False):
     cfg.setdefault("output_root", "output")
     cfg.setdefault("zimbra_folder_id", "2")
     cfg.setdefault("zimbra_scan_limit", 10)
+    cfg.setdefault("email_title", "漏洞報告文件")
+    cfg.setdefault("email_body", "各位好：\n本週漏洞報告連結如下，敬請查閱。\n如有任何問題或需要進一步說明，請隨時告知。\n謝謝。")
     _apply_env_overrides(cfg)
     if not email_only:
         cfg["search_provider"] = normalize_search_provider(cfg["search_provider"])

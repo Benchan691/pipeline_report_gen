@@ -1,6 +1,12 @@
-from report_email import build_link_body, load_email_config
-
 from pipeline.transfer import require_transfer_config, zimbra_send_email
+
+
+def build_link_body(body, link_url):
+    text = str(body or "Report link below.").rstrip()
+    link_url = str(link_url or "").strip()
+    if not link_url:
+        raise ValueError("Missing share URL for email")
+    return f"{text}\n\n{link_url}"
 
 
 def require_email_config(cfg):
@@ -17,10 +23,9 @@ def require_email_config(cfg):
 
 
 def send_report_email(cfg, share_url, subject=None):
-    email_cfg = load_email_config()
     zimbra_send_email(
         cfg,
         cfg["email_receiver"],
-        subject or email_cfg.email_title,
-        build_link_body(email_cfg.email_body, share_url),
+        subject or str(cfg.get("email_title") or "漏洞報告文件").strip(),
+        build_link_body(cfg.get("email_body"), share_url),
     )

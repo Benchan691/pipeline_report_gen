@@ -2,4 +2,4 @@ python-docx
 openpyxl
 python-dotenv
 -e ./plugin/edrive
--e ./plugin/report_email
+-e ./plugin/zimbra

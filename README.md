@@ -22,7 +22,7 @@ Languages are hardcoded in the pipeline: Chinese and English DOCX files are alwa
 - Firecrawl API key when using Firecrawl or SearXNG fallback
 - llama-server, default `http://100.102.169.17:8080`
 - Python with `python-docx`, `openpyxl`, and `python-dotenv`
-- Local [`edrive`](edrive) and [`report_email`](report_email) packages (installed via `requirements.txt`)
+- Local [`edrive`](edrive) and [`zimbra`](plugin/zimbra) packages (installed via `requirements.txt`)
 
 ```bash
 pip install -r requirements.txt
@@ -34,7 +34,7 @@ $PY cnvd_docx.py --self-test
 
 Edit [`config.json`](config.json) for pipeline settings (search, AI, output paths, etc.).
 
-Email title and body live in [`report_email/config.json`](report_email/config.json):
+Email title and body now live in root [`config.json`](config.json):
 
 ```json
 {
@@ -47,6 +47,8 @@ Example `config.json` fields:
 
 ```json
 {
+  "email_title": "漏洞報告文件",
+  "email_body": "各位好：\n本週漏洞報告連結如下，敬請查閱。\n...",
   "scrape_days": 7,
   "search_provider": "searxng",
   "searxng_base_url": "http://localhost:8086",
@@ -140,7 +142,7 @@ Email subject is built as `日期範圍 + email_title`, for example `2026年5月
 - [`pipeline/output.py`](pipeline/output.py) — dated output paths and title dates
 - [`pipeline/docx_report.py`](pipeline/docx_report.py) — Word report builder
 - [`pipeline/excel_report.py`](pipeline/excel_report.py) — Excel report builders
-- [`pipeline/email_send.py`](pipeline/email_send.py) — bridge from pipeline config to `report_email`
+- [`pipeline/email_send.py`](pipeline/email_send.py) — report notification email helper using Zimbra
 - [`pipeline/edrive_upload.py`](pipeline/edrive_upload.py) — eDrive upload helper
-- [`report_email/`](report_email/) — reusable report email title/body config
+- [`plugin/zimbra/`](plugin/zimbra/) — reusable Zimbra SOAP client
 - [`edrive/`](edrive/) — AnyShare eDrive upload client
