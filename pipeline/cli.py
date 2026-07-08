@@ -12,8 +12,10 @@ from pipeline.dependencies import check_dependencies, load_workbook, setup_loggi
 from pipeline.docx_report import build_docx
 from pipeline.evidence import (
     add_english_translations,
+    cached_card_is_usable,
     cards_missing_english,
     extract_evidence_cards,
+    inspect_existing_evidence,
     load_existing_evidence,
     merge_cards,
     pick_for_lang,
@@ -85,6 +87,34 @@ def maybe_translate_cards(cards, cfg, write_back=False):
     if write_back:
         update_vulnerability_cards(cfg["evidence_json"], cards)
     return cards
+
+
+def load_or_build_cards(cfg, candidates):
+    if not cfg.get("use_existing_evidence_json"):
+        search_results = search_mod.search_candidates(candidates, cfg)
+        if not search_results:
+            sys.exit("No relevant search results found.")
+        evidence_cards = extract_evidence_cards(candidates, search_results, cfg)
+        cards = merge_cards(candidates, evidence_cards)
+        return cards, search_results, evidence_cards
+
+    cache_state = inspect_existing_evidence(cfg["evidence_json"], candidates)
+    cached_cards = list(cache_state["cached_cards"])
+    missing_candidates = list(cache_state["missing_candidates"])
+    search_results = list(cache_state["search_results"])
+    evidence_cards = list(cache_state["source_evidence_cards"])
+    if missing_candidates:
+        new_search_results = search_mod.search_candidates(missing_candidates, cfg)
+        if not new_search_results:
+            sys.exit("No relevant search results found.")
+        new_evidence_cards = extract_evidence_cards(missing_candidates, new_search_results, cfg)
+        new_cards = merge_cards(missing_candidates, new_evidence_cards)
+        cached_cards.extend(new_cards)
+        search_results.extend(new_search_results)
+        evidence_cards.extend(new_evidence_cards)
+    cards_by_id = {card["cnvd_id"]: card for card in cached_cards}
+    cards = [cards_by_id[candidate["cnvd_id"]] for candidate in candidates]
+    return cards, search_results, evidence_cards
 
 
 def build_report_outputs(cfg, cards):
@@ -201,6 +231,108 @@ def self_test():
     assert merged["what_happened"]["en"] == ""
     assert pick_for_lang(evidence_cards, "what_happened", "en") == "中文描述"
     assert cards_missing_english([merged]) is True
+    assert cached_card_is_usable(merged) is True
+    with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as f:
+        payload = {
+            "candidates": [{"cnvd_id": "CNVD-1"}, {"cnvd_id": "CNVD-stale"}],
+            "search_results": [{"cnvd_id": "CNVD-1", "candidate_id": "CNVD-1"}],
+            "source_evidence_cards": [{"cnvd_id": "CNVD-1", "task_type": "what_happened", "what_happened": "中文描述"}],
+            "vulnerability_cards": [
+                {
+                    "cnvd_id": "CNVD-1",
+                    "title": {"zh": "信息泄露", "en": ""},
+                    "what_happened": {"zh": "中文描述", "en": ""},
+                    "why_matters": {"zh": "", "en": ""},
+                    "how_to_respond": {"zh": "修复", "en": ""},
+                    "references": ["https://example.com"],
+                },
+                {"cnvd_id": "CNVD-stale", "title": {"zh": "过期", "en": ""}, "what_happened": {"zh": "过期", "en": ""}, "why_matters": {"zh": "", "en": ""}, "how_to_respond": {"zh": "", "en": ""}},
+            ],
+        }
+        json.dump(payload, f, ensure_ascii=False)
+        f.flush()
+        cache_state = inspect_existing_evidence(f.name, [candidate])
+        assert len(cache_state["cached_cards"]) == 1
+        assert len(cache_state["missing_candidates"]) == 0
+        assert cache_state["cached_cards"][0]["cnvd_id"] == "CNVD-1"
+        assert len(cache_state["source_evidence_cards"]) == 1
+        assert len(cache_state["search_results"]) == 1
+    candidate_missing = {
+        "cnvd_id": "CNVD-2",
+        "search_id": "CNVD-2",
+        "title": "Second",
+        "summary": "",
+        "solution": "",
+        "doc": {"details": {"cnvd": {}}},
+    }
+    with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as f:
+        payload = {
+            "candidates": [{"cnvd_id": "CNVD-1"}, {"cnvd_id": "CNVD-stale"}],
+            "search_results": [{"cnvd_id": "CNVD-1", "candidate_id": "CNVD-1"}],
+            "source_evidence_cards": [{"cnvd_id": "CNVD-1", "task_type": "what_happened", "what_happened": "中文描述"}],
+            "vulnerability_cards": [
+                {
+                    "cnvd_id": "CNVD-1",
+                    "title": {"zh": "信息泄露", "en": ""},
+                    "what_happened": {"zh": "中文描述", "en": ""},
+                    "why_matters": {"zh": "", "en": ""},
+                    "how_to_respond": {"zh": "修复", "en": ""},
+                    "references": ["https://example.com"],
+                },
+                {"cnvd_id": "CNVD-stale", "title": {"zh": "过期", "en": ""}, "what_happened": {"zh": "过期", "en": ""}, "why_matters": {"zh": "", "en": ""}, "how_to_respond": {"zh": "", "en": ""}},
+            ],
+        }
+        json.dump(payload, f, ensure_ascii=False)
+        f.flush()
+        original_search_candidates = search_mod.search_candidates
+        original_extract_evidence_cards = globals()["extract_evidence_cards"]
+        try:
+            search_mod.search_candidates = lambda candidates_arg, cfg_arg: [
+                {
+                    "candidate_id": candidates_arg[0]["search_id"],
+                    "cnvd_id": candidates_arg[0]["cnvd_id"],
+                    "task_type": "what_happened",
+                    "url": "https://example.com/new",
+                    "title": "new",
+                    "snippet": "new",
+                    "page_content": "new",
+                }
+            ]
+            globals()["extract_evidence_cards"] = lambda candidates_arg, results_arg, cfg_arg: [
+                {
+                    "cnvd_id": candidates_arg[0]["cnvd_id"],
+                    "task_type": "what_happened",
+                    "what_happened": "新增描述",
+                    "why_matters": "",
+                    "how_to_respond": "",
+                    "references": ["https://example.com/new"],
+                    "affected_versions": [],
+                    "fixed_versions": [],
+                    "title": candidates_arg[0]["title"],
+                    "confidence": "high",
+                }
+            ]
+            cards, search_results, source_evidence_cards = load_or_build_cards(
+                {
+                    "use_existing_evidence_json": True,
+                    "evidence_json": f.name,
+                    "ai_base_url": "http://localhost:8080",
+                    "ai_model": "test-model",
+                },
+                [candidate, candidate_missing],
+            )
+        finally:
+            search_mod.search_candidates = original_search_candidates
+            globals()["extract_evidence_cards"] = original_extract_evidence_cards
+        assert [item["cnvd_id"] for item in cards] == ["CNVD-1", "CNVD-2"]
+        assert len(search_results) == 2
+        assert len(source_evidence_cards) == 2
+        write_evidence(f.name, [candidate, candidate_missing], search_results, source_evidence_cards, cards)
+        f.seek(0)
+        rewritten = json.load(f)
+        assert {item["cnvd_id"] for item in rewritten["vulnerability_cards"]} == {"CNVD-1", "CNVD-2"}
+        assert {item["cnvd_id"] for item in rewritten["source_evidence_cards"]} == {"CNVD-1", "CNVD-2"}
+        assert {item["cnvd_id"] for item in rewritten["search_results"]} == {"CNVD-1", "CNVD-2"}
     original_call_ai = __import__("pipeline.evidence", fromlist=["call_ai"]).call_ai
     try:
         import pipeline.evidence as evidence_mod
@@ -485,17 +617,9 @@ def main():
         log.info("Done. Outputs: %s, %s, %s", *paths)
         return
 
-    cards = load_existing_evidence(cfg["evidence_json"], candidates) if cfg.get("use_existing_evidence_json") else None
-    if cards is None:
-        search_results = search_mod.search_candidates(candidates, cfg)
-        if not search_results:
-            sys.exit("No relevant search results found.")
-        evidence_cards = extract_evidence_cards(candidates, search_results, cfg)
-        cards = merge_cards(candidates, evidence_cards)
-        cards = add_english_translations(cards, cfg)
-        write_evidence(cfg["evidence_json"], candidates, search_results, evidence_cards, cards)
-    else:
-        cards = maybe_translate_cards(cards, cfg, write_back=True)
+    cards, search_results, evidence_cards = load_or_build_cards(cfg, candidates)
+    cards = maybe_translate_cards(cards, cfg)
+    write_evidence(cfg["evidence_json"], candidates, search_results, evidence_cards, cards)
 
     paths = build_report_outputs(cfg, cards)
     send_transfer_from_folder(cfg, cfg["output_dir"])

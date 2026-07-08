@@ -265,17 +265,23 @@ def write_evidence(path, candidates, search_results, evidence_cards, merged_card
         }, f, ensure_ascii=False, indent=2)
 
 
+def _empty_evidence_payload():
+    return {
+        "candidates": [],
+        "search_results": [],
+        "source_evidence_cards": [],
+        "vulnerability_cards": [],
+    }
+
+
 def read_evidence_payload(path):
     with open(path, "r", encoding="utf-8") as f:
         payload = json.load(f)
     if isinstance(payload, dict):
         return payload
-    return {
-        "candidates": [],
-        "search_results": [],
-        "source_evidence_cards": [],
-        "vulnerability_cards": payload,
-    }
+    empty = _empty_evidence_payload()
+    empty["vulnerability_cards"] = payload
+    return empty
 
 
 def update_vulnerability_cards(path, merged_cards):
@@ -288,12 +294,85 @@ def update_vulnerability_cards(path, merged_cards):
 def clear_evidence(path):
     log.info("Clearing evidence JSON at %s", path)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({
-            "candidates": [],
+        json.dump(_empty_evidence_payload(), f, ensure_ascii=False, indent=2)
+
+
+def cached_card_is_usable(card):
+    if not isinstance(card, dict):
+        return False
+    for field in ("what_happened", "why_matters", "how_to_respond"):
+        if str(localized_field(card.get(field), DEFAULT_REPORT_LANG) or "").strip():
+            return True
+    return bool(card.get("references") or card.get("affected_versions") or card.get("fixed_versions"))
+
+
+def hydrate_cached_card(candidate, cached_card, warned=None):
+    card = dict(cached_card or {})
+    card.setdefault("cnvd_id", candidate["cnvd_id"])
+    card.setdefault("source", candidate.get("source", "cnvd"))
+    card.setdefault("cve_id", candidate.get("cve_id"))
+    card.setdefault("search_id", candidate["search_id"])
+    card.setdefault("title", candidate["title"])
+    card.setdefault("what_happened", candidate.get("summary") or "")
+    card.setdefault("why_matters", "")
+    card.setdefault("how_to_respond", candidate.get("solution") or "")
+    card.setdefault("affected_products", candidate.get("affected_products") or [])
+    card.setdefault("cluster_label", candidate.get("cluster_label") or "")
+    card.setdefault("matched_software", candidate.get("matched_software") or "")
+    card.setdefault("references", candidate.get("references") or [])
+    card.setdefault("mark", candidate.get("mark"))
+    card.setdefault("mark_reasons", candidate.get("mark_reasons") or [])
+    normalize_localized_fields(card, warned)
+    card["doc"] = candidate["doc"]
+    return card
+
+
+def inspect_existing_evidence(path, candidates):
+    log.info("Inspecting existing evidence from %s", path)
+    try:
+        payload = read_evidence_payload(path)
+    except FileNotFoundError:
+        log.info("Existing evidence file not found; regenerating evidence")
+        return {
+            "cached_cards": [],
+            "missing_candidates": list(candidates),
             "search_results": [],
             "source_evidence_cards": [],
-            "vulnerability_cards": [],
-        }, f, ensure_ascii=False, indent=2)
+        }
+    cards = payload.get("vulnerability_cards", [])
+    if not cards:
+        log.info("Existing evidence is empty; regenerating evidence")
+        return {
+            "cached_cards": [],
+            "missing_candidates": list(candidates),
+            "search_results": [],
+            "source_evidence_cards": [],
+        }
+    by_id = {c["cnvd_id"]: c for c in cards if isinstance(c, dict) and c.get("cnvd_id")}
+    warned = {"missing_en": False}
+    cached_cards = []
+    missing_candidates = []
+    cached_ids = set()
+    for candidate in candidates:
+        cached = by_id.get(candidate["cnvd_id"])
+        if cached and cached_card_is_usable(cached):
+            cached_cards.append(hydrate_cached_card(candidate, cached, warned))
+            cached_ids.add(candidate["cnvd_id"])
+        else:
+            missing_candidates.append(candidate)
+    search_results = [item for item in payload.get("search_results", []) if item.get("cnvd_id") in cached_ids]
+    source_evidence_cards = [item for item in payload.get("source_evidence_cards", []) if item.get("cnvd_id") in cached_ids]
+    log.info(
+        "Existing evidence cache: cached=%d missing=%d",
+        len(cached_cards),
+        len(missing_candidates),
+    )
+    return {
+        "cached_cards": cached_cards,
+        "missing_candidates": missing_candidates,
+        "search_results": search_results,
+        "source_evidence_cards": source_evidence_cards,
+    }
 
 
 def load_existing_evidence(path, candidates):
@@ -308,23 +387,6 @@ def load_existing_evidence(path, candidates):
     merged = []
     warned = {"missing_en": False}
     for candidate in candidates:
-        card = dict(by_id.get(candidate["cnvd_id"]) or {})
-        card.setdefault("cnvd_id", candidate["cnvd_id"])
-        card.setdefault("source", candidate.get("source", "cnvd"))
-        card.setdefault("cve_id", candidate.get("cve_id"))
-        card.setdefault("search_id", candidate["search_id"])
-        card.setdefault("title", candidate["title"])
-        card.setdefault("what_happened", candidate.get("summary") or "")
-        card.setdefault("why_matters", "")
-        card.setdefault("how_to_respond", candidate.get("solution") or "")
-        card.setdefault("affected_products", candidate.get("affected_products") or [])
-        card.setdefault("cluster_label", candidate.get("cluster_label") or "")
-        card.setdefault("matched_software", candidate.get("matched_software") or "")
-        card.setdefault("references", candidate.get("references") or [])
-        card.setdefault("mark", candidate.get("mark"))
-        card.setdefault("mark_reasons", candidate.get("mark_reasons") or [])
-        normalize_localized_fields(card, warned)
-        card["doc"] = candidate["doc"]
-        merged.append(card)
+        merged.append(hydrate_cached_card(candidate, by_id.get(candidate["cnvd_id"]), warned))
     log.info("Loaded %d vulnerability card(s) from evidence JSON", len(merged))
     return merged
