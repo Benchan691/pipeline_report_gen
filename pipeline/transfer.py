@@ -287,4 +287,9 @@ def receive_transfer(cfg, deliver_folder):
         log.info("Transfer processed and deleted: message=%s folder=%s", message_id, folder)
         return folder
 
-    raise RuntimeError(f"No matching transfer email found in Inbox folder {folder_id} (latest {limit})")
+    log.info(
+        "No transfer email received (no matching message in Inbox folder %s, latest %s)",
+        folder_id,
+        limit,
+    )
+    return None

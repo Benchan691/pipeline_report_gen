@@ -418,9 +418,10 @@ def main():
         cfg = load_config(args.config, email_only=True)
         try:
             folder = receive_transfer(cfg, lambda folder_name: send_email_from_folder(cfg, folder_name))
-        except (RuntimeError, ValueError) as exc:
+        except ValueError as exc:
             sys.exit(str(exc))
-        log.info("Received transfer and sent eDrive notification for %s", folder)
+        if folder:
+            log.info("Received transfer and sent eDrive notification for %s", folder)
         return
 
     cfg = load_config(args.config)
