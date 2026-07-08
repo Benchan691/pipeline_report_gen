@@ -41,6 +41,16 @@ from pipeline.output import (
 )
 from pipeline import search as search_mod
 from pipeline.search import parse_firecrawl_results, queries_for_candidate, web_search
+from pipeline.transfer import (
+    make_transfer_zip,
+    matches_transfer_message,
+    parse_transfer_subject,
+    receive_transfer,
+    require_transfer_config,
+    safe_extract_transfer_zip,
+    send_transfer_from_folder,
+    transfer_subject,
+)
 from pipeline.utils import norm_cnvd
 
 log = logging.getLogger(__name__)
@@ -237,7 +247,13 @@ def self_test():
             assert weekly_ws.cell(first_block.min_row, 7).value == "严重"
             assert weekly_ws.row_dimensions[first_block.min_row].height > 19.5
     try:
-        require_email_config({"SMTP_HOST": "smtp.example.com", "SMTP_USERNAME": "sender@example.com"})
+        require_email_config(
+            {
+                "zimbra_host": "zmailbox.example.com",
+                "zimbra_email": "sender@example.com",
+                "zimbra_password": "secret",
+            }
+        )
         raise AssertionError("missing email_receiver should be rejected")
     except ValueError as exc:
         assert "EMAIL_RECEIVER" in str(exc)
@@ -268,13 +284,12 @@ def self_test():
         send_report_email(
             {
                 "email_receiver": "receiver@example.com",
-                "SMTP_HOST": "smtp.example.com",
-                "SMTP_PORT": 2525,
-                "SMTP_USERNAME": "sender@example.com",
-                "SMTP_PASSWORD": "secret",
-                "SMTP_FROM": "",
-                "SMTP_USE_TLS": True,
-                "SMTP_USE_SSL": False,
+                "zimbra_host": "zmailbox.example.com",
+                "zimbra_email": "sender@example.com",
+                "zimbra_password": "secret",
+                "zimbra_smtp_port": 2525,
+                "zimbra_smtp_use_tls": True,
+                "zimbra_smtp_use_ssl": False,
             },
             share_url,
             smtp_factory=FakeSMTP,
@@ -282,13 +297,12 @@ def self_test():
         send_report_email(
             {
                 "email_receiver": "receiver@example.com",
-                "SMTP_HOST": "smtp.example.com",
-                "SMTP_PORT": 2525,
-                "SMTP_USERNAME": "sender@example.com",
-                "SMTP_PASSWORD": "secret",
-                "SMTP_FROM": "",
-                "SMTP_USE_TLS": False,
-                "SMTP_USE_SSL": False,
+                "zimbra_host": "zmailbox.example.com",
+                "zimbra_email": "sender@example.com",
+                "zimbra_password": "secret",
+                "zimbra_smtp_port": 2525,
+                "zimbra_smtp_use_tls": False,
+                "zimbra_smtp_use_ssl": False,
             },
             share_url,
             smtp_factory=FakeNoAuthSMTP,
@@ -300,6 +314,45 @@ def self_test():
     assert body.startswith(email_cfg.email_body.splitlines()[0])
     assert share_url in body
     assert len(list(sent["message"].iter_attachments())) == 0
+    assert parse_transfer_subject("PIPELINE_UPLOAD:20260706_173000") == "20260706_173000"
+    assert matches_transfer_message(
+        {"zimbra_email": "reports@example.com"},
+        {"subject": transfer_subject("20260706_173000"), "from": "sender@example.com", "to": ["reports@example.com"]},
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        run_dir = os.path.join(tmpdir, "20260706_173000")
+        os.makedirs(run_dir)
+        with open(os.path.join(run_dir, "report.docx"), "wb") as f:
+            f.write(b"x")
+        zip_bytes = make_transfer_zip(run_dir)
+        extracted = safe_extract_transfer_zip(zip_bytes, os.path.join(tmpdir, "output"), "20260706_173000")
+        assert os.path.exists(os.path.join(extracted, "report.docx"))
+        from io import BytesIO
+        import zipfile
+
+        bad_zip = BytesIO()
+        with zipfile.ZipFile(bad_zip, "w") as zf:
+            zf.writestr("../evil.txt", "x")
+        try:
+            safe_extract_transfer_zip(bad_zip.getvalue(), os.path.join(tmpdir, "bad"), "20260706_173000")
+            raise AssertionError("unsafe transfer zip should be rejected")
+        except ValueError:
+            pass
+        send_transfer_from_folder(
+            {
+                "zimbra_host": "zmailbox.example.com",
+                "zimbra_email": "reports@example.com",
+                "zimbra_password": "secret",
+                "zimbra_smtp_port": 2525,
+                "zimbra_smtp_use_tls": False,
+                "zimbra_smtp_use_ssl": False,
+            },
+            run_dir,
+            smtp_factory=FakeSMTP,
+        )
+        assert sent["message"]["To"] == "reports@example.com"
+        assert sent["message"]["Subject"] == "PIPELINE_UPLOAD:20260706_173000"
+        assert len(list(sent["message"].iter_attachments())) == 1
     vuln_match_self_test()
     print("self-test ok")
 
@@ -328,22 +381,46 @@ def main():
         metavar="FOLDER",
         help="upload an existing folder to eDrive and email the share link (e.g. 20260706_173000)",
     )
+    parser.add_argument(
+        "--send-transfer",
+        metavar="FOLDER",
+        help="email an existing output folder zip to the configured Zimbra transfer mailbox",
+    )
+    parser.add_argument(
+        "--receive-transfer",
+        action="store_true",
+        help="download the latest matching Zimbra transfer, upload to eDrive, email the share link, then delete it",
+    )
     args = parser.parse_args()
     if args.self_test:
         self_test()
         return
-    if args.translate and args.build_reports:
-        sys.exit("--translate and --build-reports cannot be used together")
-    if args.translate and args.send_email:
-        sys.exit("--translate cannot be used with --send-email")
-    if args.build_reports and args.send_email:
-        sys.exit("--build-reports cannot be used with --send-email")
+    actions = [args.translate, args.build_reports, bool(args.send_email), bool(args.send_transfer), args.receive_transfer]
+    if sum(bool(action) for action in actions) > 1:
+        sys.exit("Choose only one action: --translate, --build-reports, --send-email, --send-transfer, or --receive-transfer")
 
     setup_logging()
     if args.send_email:
         log.info("Sending report email from folder %s (config=%s)", args.send_email, args.config)
         cfg = load_config(args.config, email_only=True)
         send_email_from_folder(cfg, args.send_email)
+        return
+    if args.send_transfer:
+        log.info("Sending transfer email from folder %s (config=%s)", args.send_transfer, args.config)
+        cfg = load_config(args.config, email_only=True)
+        try:
+            send_transfer_from_folder(cfg, resolve_output_folder(cfg, args.send_transfer))
+        except ValueError as exc:
+            sys.exit(str(exc))
+        return
+    if args.receive_transfer:
+        log.info("Receiving transfer email (config=%s)", args.config)
+        cfg = load_config(args.config, email_only=True)
+        try:
+            folder = receive_transfer(cfg, lambda folder_name: send_email_from_folder(cfg, folder_name))
+        except (RuntimeError, ValueError) as exc:
+            sys.exit(str(exc))
+        log.info("Received transfer and sent eDrive notification for %s", folder)
         return
 
     cfg = load_config(args.config)
@@ -356,7 +433,7 @@ def main():
         check_dependencies()
         log.info("Starting CNVD report pipeline (config=%s)", args.config)
         try:
-            require_email_config(cfg)
+            require_transfer_config(cfg)
         except ValueError as exc:
             sys.exit(str(exc))
     log.info(
@@ -393,7 +470,6 @@ def main():
         cards = maybe_translate_cards(cards, cfg, write_back=True)
 
     paths = build_report_outputs(cfg, cards)
-    result = upload_output_folder_or_exit(cfg["output_dir"], required=True)
-    send_report_email(cfg, result.share_url, build_email_subject(cards=cards))
-    log.info("Email sent to %s with eDrive link", cfg["email_receiver"])
+    send_transfer_from_folder(cfg, cfg["output_dir"])
+    log.info("Transfer email sent for output folder %s", cfg["output_dir"])
     log.info("Done. Outputs: %s, %s, %s", *paths)

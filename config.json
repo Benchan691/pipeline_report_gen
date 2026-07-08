@@ -25,5 +25,8 @@
   "vuln_match_max_per_cluster": 5,
   "severity_filter": ["High", "Critical", "Medium"],
   "vuln_match_scrape_days": 7,
-  "output_root": "output"
+  "output_root": "output",
+  "zimbra_host": "zmailbox.citictel-cpc.com",
+  "zimbra_folder_id": "2",
+  "zimbra_scan_limit": 10
 }

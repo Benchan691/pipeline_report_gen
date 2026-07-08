@@ -41,13 +41,12 @@ def _env_bool_or_cfg(cfg, env_key, cfg_key, default):
 def _apply_env_overrides(cfg):
     cfg["firecrawl_api_key"] = _env_or_cfg(cfg, "FIRECRAWL_API_KEY", "firecrawl_api_key")
     cfg["email_receiver"] = _env_or_cfg(cfg, "EMAIL_RECEIVER", "email_receiver")
-    cfg["SMTP_HOST"] = _env_or_cfg(cfg, "SMTP_HOST", "SMTP_HOST")
-    cfg["SMTP_PORT"] = _env_int_or_cfg(cfg, "SMTP_PORT", "SMTP_PORT", 587)
-    cfg["SMTP_USERNAME"] = _env_or_cfg(cfg, "SMTP_USERNAME", "SMTP_USERNAME")
-    cfg["SMTP_PASSWORD"] = _env_or_cfg(cfg, "SMTP_PASSWORD", "SMTP_PASSWORD")
-    cfg["SMTP_FROM"] = _env_or_cfg(cfg, "SMTP_FROM", "SMTP_FROM")
-    cfg["SMTP_USE_TLS"] = _env_bool_or_cfg(cfg, "SMTP_USE_TLS", "SMTP_USE_TLS", True)
-    cfg["SMTP_USE_SSL"] = _env_bool_or_cfg(cfg, "SMTP_USE_SSL", "SMTP_USE_SSL", False)
+    cfg["zimbra_host"] = _env_or_cfg(cfg, "ZIMBRA_HOST", "zimbra_host")
+    cfg["zimbra_email"] = _env_or_cfg(cfg, "ZIMBRA_EMAIL", "zimbra_email")
+    cfg["zimbra_password"] = _env_or_cfg(cfg, "ZIMBRA_PASSWORD", "zimbra_password")
+    cfg["zimbra_smtp_port"] = _env_int_or_cfg(cfg, "ZIMBRA_SMTP_PORT", "zimbra_smtp_port", 587)
+    cfg["zimbra_smtp_use_tls"] = _env_bool_or_cfg(cfg, "ZIMBRA_SMTP_USE_TLS", "zimbra_smtp_use_tls", True)
+    cfg["zimbra_smtp_use_ssl"] = _env_bool_or_cfg(cfg, "ZIMBRA_SMTP_USE_SSL", "zimbra_smtp_use_ssl", False)
 
 
 def normalize_search_provider(provider):
@@ -87,6 +86,8 @@ def load_config(path, email_only=False):
     cfg.setdefault("use_filtered_vuln_ids", False)
     cfg.setdefault("output_date_prefix", True)
     cfg.setdefault("output_root", "output")
+    cfg.setdefault("zimbra_folder_id", "2")
+    cfg.setdefault("zimbra_scan_limit", 10)
     _apply_env_overrides(cfg)
     if not email_only:
         cfg["search_provider"] = normalize_search_provider(cfg["search_provider"])

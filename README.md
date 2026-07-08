@@ -61,20 +61,23 @@ Example `config.json` fields:
 Copy [`.env.example`](.env.example) to `.env` and set:
 
 - `FIRECRAWL_API_KEY` — Firecrawl API key (required when `search_provider` is `firecrawl`, or when SearXNG fallback is enabled)
-- `EMAIL_RECEIVER` — recipient email address
-- `SMTP_HOST` — SMTP server hostname
-- `SMTP_PORT` — SMTP server port (default `587`)
-- `SMTP_USERNAME` — SMTP login username
-- `SMTP_PASSWORD` — SMTP login password
-- `SMTP_FROM` — visible sender address (falls back to `SMTP_USERNAME` if empty)
-- `SMTP_USE_TLS` — use STARTTLS (`true` / `false`, default `true`)
-- `SMTP_USE_SSL` — use SMTP SSL (`true` / `false`, default `false`)
+- `EMAIL_RECEIVER` — recipient email address for the final eDrive share-link notification
+- `ZIMBRA_HOST`, `ZIMBRA_EMAIL`, `ZIMBRA_PASSWORD` — Zimbra account for transfer emails and SMTP notification delivery
+- `ZIMBRA_SMTP_PORT` — Zimbra SMTP port (default `587`)
+- `ZIMBRA_SMTP_USE_TLS` — use STARTTLS for Zimbra SMTP (`true` / `false`, default `true`)
+- `ZIMBRA_SMTP_USE_SSL` — use SMTP SSL (`true` / `false`, default `false`)
 - `EDRIVE_USERNAME` — eDrive account
 - `EDRIVE_PASSWORD` — eDrive password
 - `EDRIVE_REMOTE_PATH` — parent folder on eDrive (each run uploads to `{EDRIVE_REMOTE_PATH}/{run_folder}`)
 - `EDRIVE_BASE_URL` — eDrive server URL (e.g. `https://edrive.citictel-cpc.com`)
 
-After report generation, the pipeline uploads the timestamped output folder to eDrive. When email is sent, the message contains the eDrive share link instead of file attachments.
+After report generation, the default pipeline emails the timestamped output folder zip to Zimbra with subject `PIPELINE_UPLOAD:<folder>`. On the eDrive machine, run:
+
+```bash
+.venv/bin/python cnvd_docx.py --config config.json --receive-transfer
+```
+
+The receiver checks the latest 10 messages in Inbox folder id `2`, downloads the matching zip, uploads to eDrive, emails the eDrive share link to `EMAIL_RECEIVER`, then deletes the transfer email.
 
 `--build-reports` uploads when `.env` is configured but does not send email. Upload is skipped with a log message when eDrive credentials are missing.
 
