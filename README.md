@@ -27,6 +27,8 @@ Languages are hardcoded in the pipeline: Chinese and English DOCX files are alwa
 ```bash
 pip install -r requirements.txt
 PY=/Users/chankokpan/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3
+$PY -m unittest discover -s tests -v
+# Equivalent shortcut:
 $PY cnvd_docx.py --self-test
 ```
 
@@ -103,6 +105,16 @@ To build reports from existing evidence JSON without rerunning web extraction or
 ```
 
 `--build-reports` will backfill missing English translations before writing the report files.
+
+To run software-cluster matching only (keyword + LLM confirmation) without search, evidence extraction, or report generation:
+
+```bash
+.venv/bin/python cnvd_docx.py --config config.json --cluster-match
+```
+
+`--cluster-match` requires MongoDB and the configured local AI (`ai_base_url` / `ai_model`). It prints detailed per-match logs (keyword hits, LLM accept/reject, cap drops, shortlist) and exits without writing output files.
+
+Cluster-match LLM confirmation uses **thinking mode** (`enable_thinking: true`) with `vuln_match_ai_max_tokens` (default 4096) and optional `vuln_match_thinking_budget_tokens` (default 2048). Evidence extraction and `--translate` send `enable_thinking: false` per request so they stay fast and JSON-only. Requires a llama.cpp server with `--jinja` and `chat_template_kwargs` support.
 
 ## Usage
 

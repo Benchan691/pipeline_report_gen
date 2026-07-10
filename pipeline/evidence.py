@@ -10,14 +10,34 @@ from pipeline.utils import short_url, unique
 
 log = logging.getLogger(__name__)
 
+THINK_CLOSE_TAGS = ("</think>", "</redacted_thinking>")
 
-def call_ai(base_url, model, system, user, max_tokens=1000):
+
+def strip_thinking(text):
+    if not text:
+        return ""
+    text = str(text)
+    for close_tag in THINK_CLOSE_TAGS:
+        if close_tag in text:
+            return text.split(close_tag, 1)[-1].strip()
+    return text.strip()
+
+
+def build_ai_payload(model, system, user, max_tokens, enable_thinking=False, thinking_budget_tokens=None):
     payload = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "temperature": 0,
         "max_tokens": max_tokens,
+        "chat_template_kwargs": {"enable_thinking": bool(enable_thinking)},
     }
+    if enable_thinking and thinking_budget_tokens is not None:
+        payload["thinking_budget_tokens"] = int(thinking_budget_tokens)
+    return payload
+
+
+def call_ai(base_url, model, system, user, max_tokens=1000, enable_thinking=False, thinking_budget_tokens=None):
+    payload = build_ai_payload(model, system, user, max_tokens, enable_thinking, thinking_budget_tokens)
     req = urllib.request.Request(
         base_url.rstrip("/") + "/v1/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
@@ -28,8 +48,14 @@ def call_ai(base_url, model, system, user, max_tokens=1000):
             body = json.loads(res.read().decode("utf-8"))
     except (urllib.error.URLError, http.client.HTTPException) as exc:
         sys.exit(f"AI request failed: {exc}")
-    msg = body["choices"][0]["message"]
-    return msg.get("content") or msg.get("reasoning_content") or ""
+    choice = body["choices"][0]
+    msg = choice["message"]
+    content = msg.get("content") or ""
+    if enable_thinking:
+        content = strip_thinking(content)
+        if not content and choice.get("finish_reason") == "length":
+            return ""
+    return content
 
 
 def extract_json(text):
@@ -122,7 +148,7 @@ def extract_evidence_cards(candidates, results, cfg):
             short_url(result.get("url")),
         )
         system, user = evidence_prompt(result, candidate)
-        text = call_ai(cfg["ai_base_url"], cfg["ai_model"], system, user)
+        text = call_ai(cfg["ai_base_url"], cfg["ai_model"], system, user, enable_thinking=False)
         try:
             raw = extract_json(text)
         except Exception:
@@ -168,7 +194,7 @@ def normalize_localized_fields(card, warned=None):
 
 def translate_card_fields(card, cfg):
     system, user = translation_prompt(card)
-    text = call_ai(cfg["ai_base_url"], cfg["ai_model"], system, user)
+    text = call_ai(cfg["ai_base_url"], cfg["ai_model"], system, user, enable_thinking=False)
     try:
         raw = extract_json(text)
     except Exception:
@@ -252,8 +278,6 @@ def merge_cards(candidates, evidence_cards):
             len(localized_field(merged[-1]["how_to_respond"], DEFAULT_REPORT_LANG)),
         )
     return merged
-
-
 def write_evidence(path, candidates, search_results, evidence_cards, merged_cards):
     log.info("Writing evidence JSON to %s", path)
     with open(path, "w", encoding="utf-8") as f:

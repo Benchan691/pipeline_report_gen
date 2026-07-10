@@ -26,7 +26,7 @@ from pipeline.excel_report import build_weekly_excel, row_height
 from pipeline.formatting import category, format_severity, localized, weekly_row, word_rows
 from pipeline.edrive_upload import upload_output_folder_or_exit
 from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
-from pipeline.vuln_match import load_filtered_candidates, self_test as vuln_match_self_test
+from pipeline.vuln_match import load_filtered_candidates
 from pipeline.output import (
     apply_dated_output_path,
     apply_dated_output_paths,
@@ -166,363 +166,6 @@ def send_report_email(cfg, share_url, subject=None):
     )
 
 
-def self_test():
-    assert norm_cnvd("cnvd:2026-24916") == "CNVD-2026-24916"
-    c1 = {"cnvd_id": "CNVD-2026-1", "cve_id": "CVE-2026-1", "search_id": "CVE-2026-1", "title": "T"}
-    c2 = {"cnvd_id": "CNVD-2026-2", "cve_id": None, "search_id": "CNVD-2026-2", "title": "T"}
-    assert "CVE-2026-1" in queries_for_candidate(c1)["what_happened"][0]
-    assert "CNVD-2026-2" in queries_for_candidate(c2)["how_to_respond"][0]
-    card = {"cnvd_id": "CNVD-1", "cve_id": None, "title": "信息泄露", "what_happened": "敏感信息泄露", "how_to_respond": "修复", "affected_products": ["Microsoft Excel 2016"], "affected_versions": [], "doc": {"details": {"cnvd": {}}}}
-    card["cluster_label"] = "Microsoft Excel"
-    assert word_rows(card, "zh")[2][1] == "Microsoft Excel"
-    card["cluster_label"] = ""
-    assert weekly_row(card)[1] == ""
-    assert format_severity("Critical", "zh") == "严重"
-    cnnvd_doc = {"code": "2026-32651935", "severity": "High", "details": {"cnnvd": {"cnnvdId": "CNNVD-2026-32651935", "vulName": "T", "cveId": "CVE-2026-1", "vendorName": "V", "productName": "P", "publishDate": "2026-07-01"}}}
-    cnnvd = candidate_from_cnnvd_doc(cnnvd_doc)
-    assert cnnvd["cnvd_id"] == "CNNVD-2026-32651935" and cnnvd["cve_id"] == "CVE-2026-1"
-    assert cnnvd["affected_products"] == ["V", "P"] and cnnvd["source"] == "cnnvd"
-    assert word_rows({**cnnvd, "what_happened": "", "why_matters": "", "how_to_respond": ""}, "zh")[1][2] == "CNNVD编号"
-    cfg = load_config(DEFAULT_CONFIG)
-    assert cfg["search_provider"] in ("searxng", "firecrawl")
-    assert normalize_search_provider("firewcrawl") == "firecrawl"
-    try:
-        normalize_search_provider("tavily")
-        raise AssertionError("tavily should be rejected")
-    except SystemExit:
-        pass
-    parsed = parse_firecrawl_results({"success": True, "data": {"web": [{"url": "https://example.com", "title": "T", "description": "D", "markdown": "M", "position": 2}]}})
-    assert parsed[0]["source_api"] == "firecrawl" and parsed[0]["snippet"] == "D" and parsed[0]["page_content"] == "M"
-    with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as f:
-        json.dump({"vulnerability_cards": []}, f)
-        f.flush()
-        assert load_existing_evidence(f.name, []) is None
-    original_searxng, original_firecrawl = search_mod.searxng_search, search_mod.firecrawl_search
-    try:
-        search_mod.searxng_search = lambda *args: []
-        search_mod.firecrawl_search = lambda cfg, query: [{"url": "u", "title": query, "snippet": query, "page_content": query, "score": 0, "source_api": "firecrawl", "content_hash": "h"}]
-        hit = web_search({"search_provider": "searxng", "searxng_base_url": "x", "searxng_max_results": 1, "search_fallback_firecrawl": True, "firecrawl_api_key": "fc-test"}, "CVE-1")
-        assert hit[0]["source_api"] == "firecrawl"
-    finally:
-        search_mod.searxng_search, search_mod.firecrawl_search = original_searxng, original_firecrawl
-    assert category(card) == "信息泄露"
-    dated_cards = [
-        {"source": "cnnvd", "doc": {"details": {"cnnvd": {"publishDate": "2026-06-30"}}}},
-        {"source": "cnnvd", "doc": {"details": {"cnnvd": {"publishDate": "2026-07-06"}}}},
-    ]
-    assert report_date_prefix(dated_cards) == "2026.06.30-07.06"
-    week_cfg = {"use_filtered_vuln_ids": True, "vuln_match_scrape_days": 7}
-    assert report_date_prefix(dated_cards, cfg=week_cfg, now=datetime(2026, 7, 8, 12, 0, 0)) == "2026.07.02-07.08"
-    assert title_date(dated_cards, "zh", cfg=week_cfg, now=datetime(2026, 7, 8, 12, 0, 0)) == "2026年07.02-07.08最新漏洞情报"
-    assert apply_dated_output_path("2026.06.30-07.06", "周報.docx") == "2026.06.30-07.06_周報.docx"
-    assert docx_path_for_lang("2026.06.30-07.06_周報.docx", "en") == "2026.06.30-07.06_周報_en.docx"
-    bilingual_card = {
-        "cnvd_id": "CNVD-1",
-        "title": {"zh": "信息泄露", "en": "Information disclosure"},
-        "what_happened": {"zh": "敏感信息泄露", "en": "Sensitive data was exposed"},
-        "why_matters": {"zh": "", "en": ""},
-        "how_to_respond": {"zh": "修复", "en": "Apply the patch"},
-        "affected_products": ["Microsoft Excel 2016"],
-        "affected_versions": [],
-        "doc": {"details": {"cnvd": {}}},
-    }
-    assert localized(bilingual_card, "title", "en") == "Information disclosure"
-    assert word_rows(bilingual_card, "en")[0][0].startswith("Title:")
-    evidence_cards = [
-        {"cnvd_id": "CNVD-1", "task_type": "what_happened", "what_happened": "中文描述", "confidence": "high", "references": []},
-    ]
-    candidate = {"cnvd_id": "CNVD-1", "search_id": "CNVD-1", "title": "T", "summary": "", "solution": "", "doc": {"details": {"cnvd": {}}}}
-    merged = merge_cards([candidate], evidence_cards)[0]
-    assert merged["what_happened"]["zh"] == "中文描述"
-    assert merged["what_happened"]["en"] == ""
-    assert pick_for_lang(evidence_cards, "what_happened", "en") == "中文描述"
-    assert cards_missing_english([merged]) is True
-    assert cached_card_is_usable(merged) is True
-    with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as f:
-        payload = {
-            "candidates": [{"cnvd_id": "CNVD-1"}, {"cnvd_id": "CNVD-stale"}],
-            "search_results": [{"cnvd_id": "CNVD-1", "candidate_id": "CNVD-1"}],
-            "source_evidence_cards": [{"cnvd_id": "CNVD-1", "task_type": "what_happened", "what_happened": "中文描述"}],
-            "vulnerability_cards": [
-                {
-                    "cnvd_id": "CNVD-1",
-                    "title": {"zh": "信息泄露", "en": ""},
-                    "what_happened": {"zh": "中文描述", "en": ""},
-                    "why_matters": {"zh": "", "en": ""},
-                    "how_to_respond": {"zh": "修复", "en": ""},
-                    "references": ["https://example.com"],
-                },
-                {"cnvd_id": "CNVD-stale", "title": {"zh": "过期", "en": ""}, "what_happened": {"zh": "过期", "en": ""}, "why_matters": {"zh": "", "en": ""}, "how_to_respond": {"zh": "", "en": ""}},
-            ],
-        }
-        json.dump(payload, f, ensure_ascii=False)
-        f.flush()
-        cache_state = inspect_existing_evidence(f.name, [candidate])
-        assert len(cache_state["cached_cards"]) == 1
-        assert len(cache_state["missing_candidates"]) == 0
-        assert cache_state["cached_cards"][0]["cnvd_id"] == "CNVD-1"
-        assert len(cache_state["source_evidence_cards"]) == 1
-        assert len(cache_state["search_results"]) == 1
-    candidate_missing = {
-        "cnvd_id": "CNVD-2",
-        "search_id": "CNVD-2",
-        "title": "Second",
-        "summary": "",
-        "solution": "",
-        "doc": {"details": {"cnvd": {}}},
-    }
-    with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as f:
-        payload = {
-            "candidates": [{"cnvd_id": "CNVD-1"}, {"cnvd_id": "CNVD-stale"}],
-            "search_results": [{"cnvd_id": "CNVD-1", "candidate_id": "CNVD-1"}],
-            "source_evidence_cards": [{"cnvd_id": "CNVD-1", "task_type": "what_happened", "what_happened": "中文描述"}],
-            "vulnerability_cards": [
-                {
-                    "cnvd_id": "CNVD-1",
-                    "title": {"zh": "信息泄露", "en": ""},
-                    "what_happened": {"zh": "中文描述", "en": ""},
-                    "why_matters": {"zh": "", "en": ""},
-                    "how_to_respond": {"zh": "修复", "en": ""},
-                    "references": ["https://example.com"],
-                },
-                {"cnvd_id": "CNVD-stale", "title": {"zh": "过期", "en": ""}, "what_happened": {"zh": "过期", "en": ""}, "why_matters": {"zh": "", "en": ""}, "how_to_respond": {"zh": "", "en": ""}},
-            ],
-        }
-        json.dump(payload, f, ensure_ascii=False)
-        f.flush()
-        original_search_candidates = search_mod.search_candidates
-        original_extract_evidence_cards = globals()["extract_evidence_cards"]
-        try:
-            search_mod.search_candidates = lambda candidates_arg, cfg_arg: [
-                {
-                    "candidate_id": candidates_arg[0]["search_id"],
-                    "cnvd_id": candidates_arg[0]["cnvd_id"],
-                    "task_type": "what_happened",
-                    "url": "https://example.com/new",
-                    "title": "new",
-                    "snippet": "new",
-                    "page_content": "new",
-                }
-            ]
-            globals()["extract_evidence_cards"] = lambda candidates_arg, results_arg, cfg_arg: [
-                {
-                    "cnvd_id": candidates_arg[0]["cnvd_id"],
-                    "task_type": "what_happened",
-                    "what_happened": "新增描述",
-                    "why_matters": "",
-                    "how_to_respond": "",
-                    "references": ["https://example.com/new"],
-                    "affected_versions": [],
-                    "fixed_versions": [],
-                    "title": candidates_arg[0]["title"],
-                    "confidence": "high",
-                }
-            ]
-            cards, search_results, source_evidence_cards = load_or_build_cards(
-                {
-                    "use_existing_evidence_json": True,
-                    "evidence_json": f.name,
-                    "ai_base_url": "http://localhost:8080",
-                    "ai_model": "test-model",
-                },
-                [candidate, candidate_missing],
-            )
-        finally:
-            search_mod.search_candidates = original_search_candidates
-            globals()["extract_evidence_cards"] = original_extract_evidence_cards
-        assert [item["cnvd_id"] for item in cards] == ["CNVD-1", "CNVD-2"]
-        assert len(search_results) == 2
-        assert len(source_evidence_cards) == 2
-        write_evidence(f.name, [candidate, candidate_missing], search_results, source_evidence_cards, cards)
-        f.seek(0)
-        rewritten = json.load(f)
-        assert {item["cnvd_id"] for item in rewritten["vulnerability_cards"]} == {"CNVD-1", "CNVD-2"}
-        assert {item["cnvd_id"] for item in rewritten["source_evidence_cards"]} == {"CNVD-1", "CNVD-2"}
-        assert {item["cnvd_id"] for item in rewritten["search_results"]} == {"CNVD-1", "CNVD-2"}
-    original_call_ai = __import__("pipeline.evidence", fromlist=["call_ai"]).call_ai
-    try:
-        import pipeline.evidence as evidence_mod
-        evidence_mod.call_ai = lambda *args, **kwargs: json.dumps(
-            {
-                "title": "Information disclosure",
-                "what_happened": "English description",
-                "why_matters": "",
-                "how_to_respond": "Apply the patch",
-            },
-            ensure_ascii=False,
-        )
-        translated_cards = add_english_translations(
-            [merged],
-            {"ai_base_url": "http://localhost:8080", "ai_model": "test-model"},
-        )
-    finally:
-        evidence_mod.call_ai = original_call_ai
-    assert translated_cards[0]["what_happened"]["en"] == "English description"
-    assert cards_missing_english(translated_cards) is False
-    dated_cfg = {
-        "output_docx": "周報.docx",
-        "output_weekly_excel": "本周重要漏洞实例情况.xlsx",
-        "output_date_prefix": True,
-    }
-    apply_dated_output_paths(dated_cfg, dated_cards)
-    assert dated_cfg["output_weekly_excel"] == "2026.06.30-07.06_本周重要漏洞实例情况.xlsx"
-    assert dated_cfg["output_docx_en"] == "2026.06.30-07.06_周報_en.docx"
-    run_cfg = {
-        "output_docx": "周報.docx",
-        "output_weekly_excel": "本周重要漏洞实例情况.xlsx",
-        "output_date_prefix": True,
-        "output_root": tempfile.mkdtemp(),
-    }
-    apply_run_output_paths(run_cfg, dated_cards, datetime(2026, 7, 6, 17, 30, 0))
-    assert run_cfg["output_dir"].endswith("20260706_173000")
-    assert run_cfg["output_docx"].endswith("20260706_173000/2026.06.30-07.06_周報.docx")
-    assert run_cfg["output_docx_en"].endswith("20260706_173000/2026.06.30-07.06_周報_en.docx")
-    with tempfile.TemporaryDirectory() as output_root:
-        run_dir = os.path.join(output_root, "20260706_173000")
-        os.makedirs(run_dir)
-        for name in ("2026.06.30-07.06_周報.docx", "2026.06.30-07.06_周報_en.docx", "2026.06.30-07.06_本周重要漏洞实例情况.xlsx"):
-            with open(os.path.join(run_dir, name), "wb") as f:
-                f.write(b"x")
-        email_cfg = {"output_root": output_root, "use_filtered_vuln_ids": True, "vuln_match_scrape_days": 7}
-        assert resolve_output_folder(email_cfg, "20260706_173000") == run_dir
-        assert resolve_output_folder(email_cfg, run_dir) == run_dir
-        paths = list_report_paths(run_dir)
-        assert len(paths) == 3
-        assert email_subject_from_paths(paths) == "2026年6月30日-7月6日漏洞報告文件"
-        assert build_email_subject(cfg=week_cfg) == "2026年7月2日-7月8日漏洞報告文件"
-    if load_workbook is not None:
-        ws = load_workbook(cfg["weekly_excel_template"]).active
-        assert row_height(ws, ["", "", "", "", "Microsoft\nEdge", "", ""]) > 30
-        long_weekly_values = ["", "", "CVE-1", "CNVD-1", "很长的影响产品文本" * 20, "漏洞", "严重"]
-        assert row_height(ws, long_weekly_values) > 19.5
-        with tempfile.TemporaryDirectory() as tmpdir:
-            weekly_path = os.path.join(tmpdir, "weekly.xlsx")
-            weekly_cards = [
-                {"cnvd_id": "CNVD-1", "cve_id": "CVE-1", "affected_products": ["产品" * 60], "title": "漏洞一", "severity": "Critical", "doc": {"details": {"cnvd": {}}}},
-                {"cnvd_id": "CNVD-2", "cve_id": "CVE-2", "affected_products": ["Product"], "title": "漏洞二", "severity": "High", "doc": {"details": {"cnvd": {}}}},
-            ]
-            build_weekly_excel(weekly_cards, {"weekly_excel_template": cfg["weekly_excel_template"], "output_weekly_excel": weekly_path})
-            weekly_ws = load_workbook(weekly_path).active
-            labels = [weekly_ws.cell(r.min_row, 1).value for r in sorted(weekly_ws.merged_cells.ranges, key=lambda item: item.min_row) if r.min_col == r.max_col == 1 and r.min_row >= 3]
-            assert labels == ["CEC&CPC-infra", "TW", "EU", "IRD", "APP Team"]
-            first_block = min((r for r in weekly_ws.merged_cells.ranges if r.min_col == r.max_col == 1 and r.min_row >= 3), key=lambda r: r.min_row)
-            assert weekly_ws.cell(first_block.min_row, 2).value in (None, "")
-            assert weekly_ws.cell(first_block.min_row, 3).value == "CVE-1"
-            assert weekly_ws.cell(first_block.min_row + 1, 3).value == "CVE-2"
-            assert weekly_ws.cell(first_block.min_row, 7).value == "严重"
-            assert weekly_ws.row_dimensions[first_block.min_row].height > 19.5
-            assert all(weekly_ws.cell(first_block.min_row, col).alignment.vertical == "center" for col in range(1, 8))
-            assert all(weekly_ws.cell(first_block.min_row, col).alignment.horizontal == "center" for col in range(1, 8))
-            assert all(weekly_ws.cell(first_block.min_row, col).font.sz == 12 for col in range(1, 8))
-    try:
-        require_email_config(
-            {
-                "zimbra_host": "zmailbox.example.com",
-                "zimbra_email": "sender@example.com",
-                "zimbra_password": "secret",
-            }
-        )
-        raise AssertionError("missing email_receiver should be rejected")
-    except ValueError as exc:
-        assert "EMAIL_RECEIVER" in str(exc)
-    sent = []
-    import pipeline.transfer as transfer_mod
-
-    soap_calls = []
-    original_login = zimbra_mod.zimbra_login
-    original_upload = zimbra_mod.upload_attachment
-    original_soap = zimbra_mod.soap_request
-    try:
-        zimbra_mod.zimbra_login = lambda cfg: "token"
-        zimbra_mod.upload_attachment = lambda host, token, filename, data, content_type="application/octet-stream": "aid-1"
-        zimbra_mod.soap_request = lambda host, body_xml, auth_token="": soap_calls.append((host, body_xml, auth_token))
-        transfer_mod.zimbra_send_email(
-            {"zimbra_host": "zmailbox.example.com", "zimbra_email": "sender@example.com", "zimbra_password": "secret"},
-            "receiver@example.com",
-            "Subject",
-            "Body",
-            [{"filename": "x.zip", "data": b"x", "content_type": "application/zip"}],
-        )
-    finally:
-        zimbra_mod.zimbra_login = original_login
-        zimbra_mod.upload_attachment = original_upload
-        zimbra_mod.soap_request = original_soap
-    assert "SendMsgRequest" in soap_calls[-1][1]
-    assert 'attach aid="aid-1"' in soap_calls[-1][1]
-
-    original_report_zimbra_send = globals()["zimbra_send_email"]
-    original_transfer_zimbra_send = transfer_mod.zimbra_send_email
-    globals()["zimbra_send_email"] = lambda cfg, to, subject, body, attachments=None: sent.append(
-        {"to": to, "subject": subject, "body": body, "attachments": attachments or []}
-    )
-    transfer_mod.zimbra_send_email = globals()["zimbra_send_email"]
-    with tempfile.NamedTemporaryFile("wb") as a, tempfile.NamedTemporaryFile("wb") as b, tempfile.NamedTemporaryFile("wb") as c:
-        for f in (a, b, c):
-            f.write(b"x")
-            f.flush()
-        share_url = "https://edrive.example.com/share/abc123"
-        try:
-            send_report_email(
-                {
-                    "email_receiver": "receiver@example.com",
-                    "email_title": "漏洞報告文件",
-                    "email_body": "各位好：\n本週漏洞報告連結如下，敬請查閱。\n如有任何問題或需要進一步說明，請隨時告知。\n謝謝。",
-                    "zimbra_host": "zmailbox.example.com",
-                    "zimbra_email": "sender@example.com",
-                    "zimbra_password": "secret",
-                },
-                share_url,
-            )
-        finally:
-            globals()["zimbra_send_email"] = original_report_zimbra_send
-    assert sent[-1]["to"] == "receiver@example.com"
-    assert sent[-1]["subject"] == "漏洞報告文件"
-    body = sent[-1]["body"].strip()
-    assert body.startswith("各位好：")
-    assert share_url in body
-    assert len(sent[-1]["attachments"]) == 0
-    assert parse_transfer_subject("PIPELINE_UPLOAD:20260706_173000") == "20260706_173000"
-    assert matches_transfer_message(
-        {"zimbra_email": "reports@example.com"},
-        {"subject": transfer_subject("20260706_173000"), "from": "sender@example.com", "to": ["reports@example.com"]},
-    )
-    with tempfile.TemporaryDirectory() as tmpdir:
-        run_dir = os.path.join(tmpdir, "20260706_173000")
-        os.makedirs(run_dir)
-        with open(os.path.join(run_dir, "report.docx"), "wb") as f:
-            f.write(b"x")
-        zip_bytes = make_transfer_zip(run_dir)
-        extracted = safe_extract_transfer_zip(zip_bytes, os.path.join(tmpdir, "output"), "20260706_173000")
-        assert os.path.exists(os.path.join(extracted, "report.docx"))
-        from io import BytesIO
-        import zipfile
-
-        bad_zip = BytesIO()
-        with zipfile.ZipFile(bad_zip, "w") as zf:
-            zf.writestr("../evil.txt", "x")
-        try:
-            safe_extract_transfer_zip(bad_zip.getvalue(), os.path.join(tmpdir, "bad"), "20260706_173000")
-            raise AssertionError("unsafe transfer zip should be rejected")
-        except ValueError:
-            pass
-        try:
-            send_transfer_from_folder(
-                {
-                    "zimbra_host": "zmailbox.example.com",
-                    "zimbra_email": "reports@example.com",
-                    "zimbra_password": "secret",
-                },
-                run_dir,
-            )
-        finally:
-            transfer_mod.zimbra_send_email = original_transfer_zimbra_send
-        assert sent[-1]["to"] == "reports@example.com"
-        assert sent[-1]["subject"] == "PIPELINE_UPLOAD:20260706_173000"
-        assert len(sent[-1]["attachments"]) == 1
-    vuln_match_self_test()
-    print("self-test ok")
-
-
 def send_email_from_folder(cfg, folder_path):
     try:
         require_email_config(cfg)
@@ -536,12 +179,17 @@ def send_email_from_folder(cfg, folder_path):
     log.info("Email sent to %s with eDrive link (%s)", cfg["email_receiver"], folder)
 
 
-def main():
+def build_arg_parser():
     parser = argparse.ArgumentParser(description="Generate CNVD-first evidence-card DOCX and XLSX reports.")
     parser.add_argument("--config", default=DEFAULT_CONFIG, help="config JSON path")
-    parser.add_argument("--self-test", action="store_true", help="run local assertions without MongoDB, SearXNG, or AI")
+    parser.add_argument("--self-test", action="store_true", help="run the local test suite without MongoDB, SearXNG, or AI")
     parser.add_argument("--translate", action="store_true", help="translate existing evidence JSON to English fields only")
     parser.add_argument("--build-reports", action="store_true", help="build reports from existing evidence JSON without search or email")
+    parser.add_argument(
+        "--cluster-match",
+        action="store_true",
+        help="run software-cluster matching only (keyword + LLM); no search, evidence, or reports",
+    )
     parser.add_argument(
         "--send-email",
         metavar="FOLDER",
@@ -557,13 +205,34 @@ def main():
         action="store_true",
         help="download the latest matching Zimbra transfer, upload to eDrive, email the share link, then delete it",
     )
+    return parser
+
+
+def exclusive_action_flags(args):
+    return [
+        args.translate,
+        args.build_reports,
+        args.cluster_match,
+        bool(args.send_email),
+        bool(args.send_transfer),
+        args.receive_transfer,
+    ]
+
+
+def main():
+    parser = build_arg_parser()
     args = parser.parse_args()
     if args.self_test:
-        self_test()
+        from tests.run import main as run_tests
+
+        run_tests()
         return
-    actions = [args.translate, args.build_reports, bool(args.send_email), bool(args.send_transfer), args.receive_transfer]
+    actions = exclusive_action_flags(args)
     if sum(bool(action) for action in actions) > 1:
-        sys.exit("Choose only one action: --translate, --build-reports, --send-email, --send-transfer, or --receive-transfer")
+        sys.exit(
+            "Choose only one action: --translate, --build-reports, --cluster-match, "
+            "--send-email, --send-transfer, or --receive-transfer"
+        )
 
     setup_logging()
     if args.send_email:
@@ -596,6 +265,8 @@ def main():
     elif args.build_reports:
         check_dependencies()
         log.info("Building reports from existing evidence (config=%s)", args.config)
+    elif args.cluster_match:
+        log.info("Running cluster match only (config=%s)", args.config)
     else:
         check_dependencies()
         log.info("Starting CNVD report pipeline (config=%s)", args.config)
@@ -610,6 +281,19 @@ def main():
         cfg.get("use_filtered_vuln_ids"),
         cfg.get("use_existing_evidence_json"),
     )
+    if args.cluster_match:
+        cfg["use_filtered_vuln_ids"] = True
+        candidates, stats = load_filtered_candidates(cfg)
+        log.info(
+            "Shortlist: keyword_hits=%d, llm_rejected=%d, marked=%d, after_cluster_cap=%d, selected=%d",
+            stats.get("keyword_hits", 0),
+            stats.get("llm_rejected", 0),
+            stats["marked"],
+            stats["after_cluster_cap"],
+            len(candidates),
+        )
+        log.info("Cluster match complete.")
+        return
     candidates = load_candidates_for_config(cfg)
     if args.translate:
         cards = load_existing_cards_or_exit(cfg, candidates)

@@ -62,6 +62,8 @@ def load_config(path, email_only=False):
     cfg.setdefault("results_per_task", 1)
     cfg.setdefault("use_existing_evidence_json", False)
     cfg.setdefault("use_filtered_vuln_ids", False)
+    cfg.setdefault("vuln_match_ai_max_tokens", 4096)
+    cfg.setdefault("vuln_match_thinking_budget_tokens", 2048)
     cfg.setdefault("output_date_prefix", True)
     cfg.setdefault("output_root", "output")
     cfg.setdefault("zimbra_folder_id", "2")

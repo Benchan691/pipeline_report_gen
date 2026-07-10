@@ -176,7 +176,16 @@ def confirm_software_match(doc, source, match, cfg):
     from pipeline.evidence import call_ai, extract_json
 
     system, user = match_confirmation_prompt(doc, source, match)
-    text = call_ai(cfg["ai_base_url"], cfg["ai_model"], system, user, max_tokens=300)
+    thinking_budget = cfg.get("vuln_match_thinking_budget_tokens")
+    text = call_ai(
+        cfg["ai_base_url"],
+        cfg["ai_model"],
+        system,
+        user,
+        max_tokens=int(cfg.get("vuln_match_ai_max_tokens", 4096)),
+        enable_thinking=True,
+        thinking_budget_tokens=thinking_budget,
+    )
     try:
         raw = extract_json(text)
     except Exception:
@@ -452,169 +461,3 @@ def load_filtered_candidates(cfg):
     if not candidates:
         sys.exit("No vulnerabilities matched software clusters in the configured window.")
     return candidates, stats
-
-
-def self_test():
-    assert clean_term("Java 8 Update 202 (64-bit)") == "Java"
-    assert clean_term("Microsoft SQL Server 2008 R2 (64-bit)") == "Microsoft SQL Server R2"
-    assert norm_severity("高危") == "High"
-    assert norm_severity("中\n(AV:L)") == "Medium"
-    assert norm_id("cnvd", "2026-24916") == "CNVD-2026-24916"
-    assert norm_id("cnnvd", "CNNVD-2026-32651935") == "CNNVD-2026-32651935"
-    assert first_match([{"term": "Microsoft Office"}], "microsoft office code execution")
-
-    conductor_doc = {
-        "title": "Conductor OSS Conductor 代码注入漏洞",
-        "details": {
-            "cnnvd": {
-                "vulName": "Conductor OSS Conductor 代码注入漏洞",
-                "vulDesc": "恶意JavaScript或Python表达式的内联工作流定义",
-                "productName": "Conductor",
-                "vendorName": "Conductor OSS",
-            }
-        },
-    }
-    crawl4ai_doc = {
-        "title": "UncleCode Crawl4AI 代码注入漏洞",
-        "details": {
-            "cnnvd": {
-                "vulName": "UncleCode Crawl4AI 代码注入漏洞",
-                "vulDesc": "执行攻击者提供的任意JavaScript",
-                "productName": "Crawl4AI",
-                "vendorName": "UncleCode",
-            }
-        },
-    }
-    chrome_doc = {
-        "title": "Google Chrome 资源管理错误漏洞",
-        "details": {
-            "cnnvd": {
-                "vulName": "Google Chrome 资源管理错误漏洞",
-                "vulDesc": "Blink组件内存错误",
-                "productName": "Google Chrome",
-                "vendorName": "Google",
-            }
-        },
-    }
-    terms = [{"term": "Python"}, {"term": "Java"}, {"term": "Google Chrome"}]
-    assert first_match(terms, searchable_text("cnnvd", conductor_doc)) is None
-    assert first_match(terms, searchable_text("cnnvd", crawl4ai_doc)) is None
-    assert first_match(terms, searchable_text("cnnvd", chrome_doc))["term"] == "Google Chrome"
-    high = {"term": "A", "term_kind": "sample", "cluster_size": 1}
-    low = {"term": "B", "term_kind": "label", "cluster_size": 99}
-    assert mark_match("High", high, "")[0] > mark_match("Medium", low, "")[0]
-    ranked = ranked_matches([
-        {"source": "cnvd", "id": "CNVD-1", "severity": "High", "mark": 1},
-        {"source": "cnvd", "id": "CNVD-2", "severity": "Critical", "mark": 2},
-    ], 1)
-    assert [m["id"] for m in ranked] == ["CNVD-2"]
-    payload = make_payload([{"source": "cnvd", "id": "CNVD-1"}, {"source": "cnnvd", "id": "CNNVD-1"}])
-    assert payload["cnvd_ids"] == ["CNVD-1"] and payload["cnnvd_ids"] == ["CNNVD-1"]
-
-    assert vuln_type_key("Google Chrome Blink内存错误引用漏洞", "Google Chrome") == "blink内存错误引用"
-    assert vuln_type_key("Google Chrome V8类型混淆漏洞", "Google Chrome") == "v8类型混淆"
-
-    chrome_items = [
-        {"id": "C1", "severity": "Critical", "mark": 452, "published": "2026-06-28", "title": "Google Chrome Blink内存错误引用漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
-        {"id": "C2", "severity": "Critical", "mark": 452, "published": "2026-06-29", "title": "Google Chrome V8类型混淆漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
-        {"id": "C3", "severity": "Critical", "mark": 452, "published": "2026-06-30", "title": "Google Chrome WebRTC堆缓冲区溢出漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"},
-    ]
-    diverse = diversity_pick(chrome_items, 3)
-    assert len(diverse) == 3
-    assert len({vuln_type_key(m["title"], m["cluster_label"]) for m in diverse}) == 3
-
-    many_chrome = [
-        {"id": f"C{i}", "severity": "Critical", "mark": 452, "published": "2026-06-30", "title": f"Google Chrome Type{i}漏洞", "cluster_label": "Google Chrome", "cluster_id": "C0115"}
-        for i in range(10)
-    ]
-    java_items = [
-        {"id": "J1", "severity": "Critical", "mark": 469, "published": "2026-06-30", "title": "Java RCE漏洞", "cluster_label": "Java", "cluster_id": "C0003"},
-        {"id": "J2", "severity": "High", "mark": 366, "published": "2026-06-30", "title": "Java反序列化漏洞", "cluster_label": "Java", "cluster_id": "C0003"},
-    ]
-    capped = cap_per_cluster(many_chrome + java_items, 5)
-    assert len(capped) == 7
-    assert len([m for m in capped if m["cluster_id"] == "C0115"]) == 5
-
-    integration = ranked_matches(cap_per_cluster(chrome_items, 5), 3)
-    assert len(integration) == 3
-
-    snowflake_doc = {
-        "code": "CNNVD-2026-00001",
-        "title": "Snowflake Snowpark Python SDK输入验证不当漏洞",
-        "severity": "High",
-        "details": {
-            "cnnvd": {
-                "vulName": "Snowflake Snowpark Python SDK输入验证不当漏洞",
-                "vulDesc": "Snowflake Snowpark Python SDK存在输入验证问题",
-                "productName": "Snowflake Snowpark Python SDK",
-                "vendorName": "Snowflake",
-            }
-        },
-    }
-    python_match = {"term": "Python", "cluster_label": "Python", "cluster_id": "C0001", "cluster_size": 10, "term_kind": "label"}
-    system, user = match_confirmation_prompt(snowflake_doc, "cnnvd", python_match)
-    assert "related=true" in system
-    assert "related=false" in system
-    assert "Snowpark" in system or "language" in system.lower()
-    assert "Python" in user
-
-    import pipeline.evidence as evidence_mod
-
-    original_call_ai = evidence_mod.call_ai
-
-    def mock_call_ai(base_url, model, system, user, max_tokens=1000):
-        if "Snowflake" in user:
-            return json.dumps({
-                "related": False,
-                "confidence": "high",
-                "reason": "Python keyword only names the SDK language, not cluster Python",
-            })
-        if "Google Chrome" in user:
-            return json.dumps({
-                "related": True,
-                "confidence": "high",
-                "reason": "Vulnerability is in Google Chrome itself",
-            })
-        return json.dumps({"related": False, "confidence": "low", "reason": "unknown"})
-
-    test_cfg = {
-        "ai_base_url": "http://test",
-        "ai_model": "test-model",
-        "severity_filter": ["High", "Critical"],
-        "vuln_match_scrape_days": 7,
-        "vuln_match_top_n": 20,
-    }
-    try:
-        evidence_mod.call_ai = mock_call_ai
-        rejected = confirm_software_match(snowflake_doc, "cnnvd", python_match, test_cfg)
-        assert rejected["related"] is False
-        accepted = confirm_software_match(
-            {**chrome_doc, "code": "CNNVD-2026-00002"},
-            "cnnvd",
-            {"term": "Google Chrome", "cluster_label": "Google Chrome", "cluster_id": "C0115", "cluster_size": 5, "term_kind": "label"},
-            test_cfg,
-        )
-        assert accepted["related"] is True
-
-        original_docs_for = docs_for
-
-        def mock_docs_for(source, days):
-            if source == "cnnvd":
-                return [
-                    snowflake_doc,
-                    {**chrome_doc, "code": "CNNVD-2026-00002", "severity": "High"},
-                ]
-            return []
-
-        globals()["docs_for"] = mock_docs_for
-        payload, stats = build_filtered_matches({
-            **test_cfg,
-            "software_cluster_csv": "cluster/software_cluster_summary_v3.csv",
-        })
-        assert stats["keyword_hits"] == 2
-        assert stats["llm_rejected"] == 1
-        assert stats["marked"] == 1
-        assert payload["cnnvd_ids"] == ["CNNVD-2026-00002"]
-    finally:
-        evidence_mod.call_ai = original_call_ai
-        globals()["docs_for"] = original_docs_for
