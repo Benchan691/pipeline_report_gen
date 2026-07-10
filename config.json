@@ -23,7 +23,7 @@
   "severity_filter": ["High", "Critical", "Medium"],
   "vuln_match_scrape_days": 7,
   "vuln_match_ai_max_tokens": 4096,
-  "vuln_match_thinking_budget_tokens": 2048,
+  "vuln_match_thinking_budget_tokens": 3750,
   "output_root": "output",
   "zimbra_host": "zmailbox.citictel-cpc.com",
   "email_title": "漏洞報告文件",
