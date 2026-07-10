@@ -75,7 +75,7 @@ Use the **shared Zimbra account** as an internal drop box:
 ```mermaid
 flowchart LR
     subgraph MachineA["Machine A — Pipeline host"]
-        GEN["cnvd_docx.py --build-reports"]
+        GEN["main.py --build-reports"]
         ZIP["Zip output/YYYYMMDD_HHMMSS/"]
         SEND["Email zip via Zimbra SMTP"]
     end
@@ -86,7 +86,7 @@ flowchart LR
 
     subgraph MachineB["Machine B — eDrive host"]
         DL["Download & unzip"]
-        UP["cnvd_docx.py --send-email"]
+        UP["main.py --send-email"]
         EDRIVE["eDrive upload"]
         MAIL["Email share link to team"]
     end
@@ -110,7 +110,7 @@ flowchart LR
 
 ```bash
 cd /path/to/pipeline_docx
-.venv/bin/python cnvd_docx.py --build-reports
+.venv/bin/python main.py --build-reports
 ```
 
 Note the output folder name from the log (e.g. `output/20260706_173000`).
@@ -135,7 +135,7 @@ Recommended subject line: `PIPELINE_UPLOAD:20260706_173000`
 
 ```bash
 cd /path/to/pipeline_docx
-.venv/bin/python cnvd_docx.py --send-email 20260706_173000
+.venv/bin/python main.py --send-email 20260706_173000
 ```
 
 This uploads the folder to eDrive and emails the share link to recipients.
@@ -211,6 +211,6 @@ These are not required for the initial rollout but would reduce manual steps:
 
 ## Conclusion
 
-The pipeline’s report generation and eDrive delivery are split across two machines with no direct network path. **Zimbra shared email** is the simplest company-approved bridge: both machines already have access, no new services are needed, and the existing `cnvd_docx.py --send-email` command on Machine B completes upload and delivery unchanged.
+The pipeline’s report generation and eDrive delivery are split across two machines with no direct network path. **Zimbra shared email** is the simplest company-approved bridge: both machines already have access, no new services are needed, and the existing `main.py --send-email` command on Machine B completes upload and delivery unchanged.
 
 **Decision:** Adopt Zimbra-mediated transfer as the standard weekly workflow until direct connectivity or a dedicated shared storage path becomes available.

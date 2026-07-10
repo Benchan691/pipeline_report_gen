@@ -230,5 +230,5 @@ def query_filtered_vulns(path):
         payload = json.load(f)
     candidates = candidates_from_payload(payload)
     if not candidates:
-        sys.exit(f"No matches found in {path}; run cnvd_docx.py to refresh the shortlist.")
+        sys.exit(f"No matches found in {path}; run main.py to refresh the shortlist.")
     return candidates

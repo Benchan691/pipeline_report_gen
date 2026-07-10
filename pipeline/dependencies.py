@@ -35,8 +35,8 @@ def check_dependencies():
     venv_python = os.path.join(project_root, ".venv", "bin", "python3")
     hints = [
         f"Install deps: {sys.executable} -m pip install -r requirements.txt",
-        f"Or use project venv: {venv_python} cnvd_docx.py",
-        f"Or use bundled Codex Python: {bundled} cnvd_docx.py",
+        f"Or use project venv: {venv_python} main.py",
+        f"Or use bundled Codex Python: {bundled} main.py",
     ]
     sys.exit(
         "Missing Python packages: "

@@ -20,7 +20,7 @@ class PipelineTests(unittest.TestCase):
     def test_cli_always_uses_the_repository_config(self):
         parser = build_arg_parser()
         self.assertFalse(any(action.dest == "config" for action in parser._actions))
-        with self.assertRaises(SystemExit):
+        with io.StringIO() as stderr, unittest.mock.patch("sys.stderr", stderr), self.assertRaises(SystemExit):
             parser.parse_args(["--config", "other.json"])
 
     def test_cache_reuses_valid_cards_and_filters_stale_data(self):
