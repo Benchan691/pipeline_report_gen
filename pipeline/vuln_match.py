@@ -110,6 +110,74 @@ def first_match(terms, text):
     return None
 
 
+def doc_fields(source, doc):
+    raw = (doc.get("details") or {}).get(source) or {}
+    if source == "cnvd":
+        return {
+            "title": raw.get("title") or doc.get("title") or "",
+            "product": " ".join(raw.get("affected_products") or []),
+            "vendor": "",
+            "summary": str(raw.get("description") or "")[:500],
+        }
+    return {
+        "title": raw.get("vulName") or doc.get("title") or "",
+        "product": raw.get("productName") or "",
+        "vendor": raw.get("vendorName") or "",
+        "summary": str(raw.get("vulDesc") or raw.get("vulDetail") or "")[:500],
+    }
+
+
+def match_confirmation_prompt(doc, source, match):
+    fields = doc_fields(source, doc)
+    system = (
+        "Decide whether a vulnerability is truly related to installed cluster software. "
+        "Return one strict JSON object only with keys related, confidence, and reason. "
+        "related must be true or false. confidence must be high, medium, or low.\n\n"
+        "Mark related=true only when the vulnerability affects the same product family as the matched cluster software. "
+        "The title, product, or vendor must clearly name that software or a direct edition/component of it. "
+        "The flaw must be in that installed product itself.\n\n"
+        "Mark related=false when:\n"
+        "- the matched keyword appears only as a language, runtime, SDK name, or feature inside another product "
+        "(example: cluster term Python vs Snowflake Snowpark Python SDK)\n"
+        "- the product is a different vendor/product that merely contains the keyword\n"
+        "- the description only mentions the keyword as an example, expression language, dependency, or incidental text\n"
+        "- the keyword match comes from description wording but the actual affected product is unrelated\n"
+        "- the cluster software is only tangentially mentioned and is not the vulnerable product"
+    )
+    user = {
+        "matched_term": match.get("term") or "",
+        "cluster_label": match.get("cluster_label") or "",
+        "vuln_id": norm_id(source, doc.get("code")),
+        "title": fields["title"],
+        "product": fields["product"],
+        "vendor": fields["vendor"],
+        "summary": fields["summary"],
+    }
+    return system, json.dumps(user, ensure_ascii=False)
+
+
+def confirm_software_match(doc, source, match, cfg):
+    from pipeline.evidence import call_ai, extract_json
+
+    system, user = match_confirmation_prompt(doc, source, match)
+    text = call_ai(cfg["ai_base_url"], cfg["ai_model"], system, user, max_tokens=300)
+    try:
+        raw = extract_json(text)
+    except Exception:
+        log.warning(
+            "LLM match confirmation returned invalid JSON for %s / %s",
+            norm_id(source, doc.get("code")),
+            match.get("term"),
+        )
+        return {"related": False, "confidence": "low", "reason": "invalid_llm_response"}
+    related = bool(raw.get("related"))
+    confidence = str(raw.get("confidence") or "low").strip().lower()
+    if confidence not in ("high", "medium", "low"):
+        confidence = "low"
+    reason = str(raw.get("reason") or "").strip() or "no_reason"
+    return {"related": related, "confidence": confidence, "reason": reason}
+
+
 def doc_date(doc):
     raw = (doc.get("details") or {}).get("cnvd") or (doc.get("details") or {}).get("cnnvd") or {}
     return (
@@ -229,6 +297,8 @@ def build_filtered_matches(cfg):
     max_per_cluster = int(cfg.get("vuln_match_max_per_cluster") or 0)
     matches = []
     seen = set()
+    keyword_hits = 0
+    llm_rejected = 0
     for source in ("cnvd", "cnnvd"):
         for doc in docs_for(source, days):
             severity = norm_severity(doc.get("severity") or doc.get("status"))
@@ -240,9 +310,22 @@ def build_filtered_matches(cfg):
             vid = norm_id(source, doc.get("code"))
             if vid in seen:
                 continue
+            keyword_hits += 1
+            confirmation = confirm_software_match(doc, source, match, cfg)
+            if not confirmation["related"]:
+                llm_rejected += 1
+                log.info(
+                    "  LLM rejected %s (%s): %s",
+                    vid,
+                    match["term"],
+                    confirmation["reason"],
+                )
+                continue
             seen.add(vid)
             published = doc_date(doc)
             mark, reasons = mark_match(severity, match, published)
+            reasons.append(f"llm_related:{confirmation['confidence']}")
+            reasons.append(f"llm_reason:{confirmation['reason']}")
             matches.append({
                 "source": source,
                 "id": vid,
@@ -258,7 +341,19 @@ def build_filtered_matches(cfg):
             })
     capped = cap_per_cluster(matches, max_per_cluster) if max_per_cluster else matches
     payload = make_payload(ranked_matches(capped, top_n))
-    return payload, {"marked": len(matches), "after_cluster_cap": len(capped)}
+    log.info(
+        "Cluster match filter: keyword_hits=%d llm_accepted=%d llm_rejected=%d after_cluster_cap=%d",
+        keyword_hits,
+        len(matches),
+        llm_rejected,
+        len(capped),
+    )
+    return payload, {
+        "marked": len(matches),
+        "after_cluster_cap": len(capped),
+        "keyword_hits": keyword_hits,
+        "llm_rejected": llm_rejected,
+    }
 
 
 def load_filtered_candidates(cfg):
@@ -353,3 +448,84 @@ def self_test():
 
     integration = ranked_matches(cap_per_cluster(chrome_items, 5), 3)
     assert len(integration) == 3
+
+    snowflake_doc = {
+        "code": "CNNVD-2026-00001",
+        "title": "Snowflake Snowpark Python SDK输入验证不当漏洞",
+        "severity": "High",
+        "details": {
+            "cnnvd": {
+                "vulName": "Snowflake Snowpark Python SDK输入验证不当漏洞",
+                "vulDesc": "Snowflake Snowpark Python SDK存在输入验证问题",
+                "productName": "Snowflake Snowpark Python SDK",
+                "vendorName": "Snowflake",
+            }
+        },
+    }
+    python_match = {"term": "Python", "cluster_label": "Python", "cluster_id": "C0001", "cluster_size": 10, "term_kind": "label"}
+    system, user = match_confirmation_prompt(snowflake_doc, "cnnvd", python_match)
+    assert "related=true" in system
+    assert "related=false" in system
+    assert "Snowpark" in system or "language" in system.lower()
+    assert "Python" in user
+
+    import pipeline.evidence as evidence_mod
+
+    original_call_ai = evidence_mod.call_ai
+
+    def mock_call_ai(base_url, model, system, user, max_tokens=1000):
+        if "Snowflake" in user:
+            return json.dumps({
+                "related": False,
+                "confidence": "high",
+                "reason": "Python keyword only names the SDK language, not cluster Python",
+            })
+        if "Google Chrome" in user:
+            return json.dumps({
+                "related": True,
+                "confidence": "high",
+                "reason": "Vulnerability is in Google Chrome itself",
+            })
+        return json.dumps({"related": False, "confidence": "low", "reason": "unknown"})
+
+    test_cfg = {
+        "ai_base_url": "http://test",
+        "ai_model": "test-model",
+        "severity_filter": ["High", "Critical"],
+        "vuln_match_scrape_days": 7,
+        "vuln_match_top_n": 20,
+    }
+    try:
+        evidence_mod.call_ai = mock_call_ai
+        rejected = confirm_software_match(snowflake_doc, "cnnvd", python_match, test_cfg)
+        assert rejected["related"] is False
+        accepted = confirm_software_match(
+            {**chrome_doc, "code": "CNNVD-2026-00002"},
+            "cnnvd",
+            {"term": "Google Chrome", "cluster_label": "Google Chrome", "cluster_id": "C0115", "cluster_size": 5, "term_kind": "label"},
+            test_cfg,
+        )
+        assert accepted["related"] is True
+
+        original_docs_for = docs_for
+
+        def mock_docs_for(source, days):
+            if source == "cnnvd":
+                return [
+                    snowflake_doc,
+                    {**chrome_doc, "code": "CNNVD-2026-00002", "severity": "High"},
+                ]
+            return []
+
+        globals()["docs_for"] = mock_docs_for
+        payload, stats = build_filtered_matches({
+            **test_cfg,
+            "software_cluster_csv": "cluster/software_cluster_summary_v3.csv",
+        })
+        assert stats["keyword_hits"] == 2
+        assert stats["llm_rejected"] == 1
+        assert stats["marked"] == 1
+        assert payload["cnnvd_ids"] == ["CNNVD-2026-00002"]
+    finally:
+        evidence_mod.call_ai = original_call_ai
+        globals()["docs_for"] = original_docs_for
