@@ -7,6 +7,7 @@ from pipeline.vuln_match import (
     clean_term,
     confirm_software_match,
     first_match,
+    match_confirmation_prompt,
     norm_id,
     norm_severity,
     ranked_matches,
@@ -44,3 +45,15 @@ class VulnerabilityMatchTests(unittest.TestCase):
         self.assertEqual(call_ai.call_args.kwargs["max_tokens"], 123)
         self.assertTrue(call_ai.call_args.kwargs["enable_thinking"])
         self.assertEqual(call_ai.call_args.kwargs["thinking_budget_tokens"], 45)
+
+    def test_confirmation_prompt_defaults_ambiguous_and_indirect_matches_to_false(self):
+        document = {"code": "CNNVD-1", "details": {"cnnvd": {"vulName": "SDK vulnerability", "productName": "Snowflake Snowpark Python SDK"}}}
+        match = {"term": "Python", "cluster_label": "Python"}
+
+        system, user = match_confirmation_prompt(document, "cnnvd", match)
+
+        self.assertIn("keyword match is an untrusted", system)
+        self.assertIn("when evidence is missing, ambiguous, indirect, or conflicting, return related=false", system)
+        self.assertIn("A medium- or low-confidence relationship must be related=false", system)
+        self.assertIn("plugins, connectors, integrations", system)
+        self.assertEqual(json.loads(user)["product"], "Snowflake Snowpark Python SDK")
