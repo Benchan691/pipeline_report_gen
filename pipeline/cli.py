@@ -62,7 +62,9 @@ def load_candidates_for_config(cfg):
     if cfg.get("use_filtered_vuln_ids"):
         candidates, stats = load_filtered_candidates(cfg)
         log.info(
-            "Shortlist: marked=%d, after_cluster_cap=%d, selected=%d",
+            "Shortlist: keyword_hits=%d, llm_rejected=%d, marked=%d, after_cluster_cap=%d, selected=%d",
+            stats.get("keyword_hits", 0),
+            stats.get("llm_rejected", 0),
             stats["marked"],
             stats["after_cluster_cap"],
             len(candidates),

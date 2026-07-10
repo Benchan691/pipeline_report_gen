@@ -156,6 +156,22 @@ def match_confirmation_prompt(doc, source, match):
     return system, json.dumps(user, ensure_ascii=False)
 
 
+def match_detail(source, doc, match):
+    fields = doc_fields(source, doc)
+    return {
+        "id": norm_id(source, doc.get("code")),
+        "title": fields["title"] or doc.get("title") or "",
+        "product": fields["product"],
+        "vendor": fields["vendor"],
+        "severity": norm_severity(doc.get("severity") or doc.get("status")),
+        "term": match.get("term") or "",
+        "cluster_id": match.get("cluster_id") or "",
+        "cluster_label": match.get("cluster_label") or "",
+        "term_kind": match.get("term_kind") or "",
+        "cluster_size": match.get("cluster_size") or 0,
+    }
+
+
 def confirm_software_match(doc, source, match, cfg):
     from pipeline.evidence import call_ai, extract_json
 
@@ -295,12 +311,23 @@ def build_filtered_matches(cfg):
     days = cfg.get("vuln_match_scrape_days", cfg.get("scrape_days"))
     top_n = int(cfg.get("vuln_match_top_n", 20))
     max_per_cluster = int(cfg.get("vuln_match_max_per_cluster") or 0)
+    severity_text = ", ".join(sorted(allowed)) if allowed else "all"
+    log.info(
+        "Cluster matching: %d term(s), severities=%s, scrape_days=%s, top_n=%d, max_per_cluster=%d",
+        len(terms),
+        severity_text,
+        days,
+        top_n,
+        max_per_cluster,
+    )
     matches = []
     seen = set()
     keyword_hits = 0
     llm_rejected = 0
     for source in ("cnvd", "cnnvd"):
-        for doc in docs_for(source, days):
+        docs = docs_for(source, days)
+        log.info("  Scanning %d %s document(s)", len(docs), source.upper())
+        for doc in docs:
             severity = norm_severity(doc.get("severity") or doc.get("status"))
             if allowed and severity not in allowed:
                 continue
@@ -309,15 +336,31 @@ def build_filtered_matches(cfg):
                 continue
             vid = norm_id(source, doc.get("code"))
             if vid in seen:
+                log.info("  Duplicate keyword hit skipped: %s (term=%r)", vid, match["term"])
                 continue
+            detail = match_detail(source, doc, match)
             keyword_hits += 1
+            log.info(
+                "  Keyword hit %s [%s] term=%r (%s) cluster=%s (%s, size=%s) product=%r vendor=%r title=%s",
+                detail["id"],
+                detail["severity"],
+                detail["term"],
+                detail["term_kind"],
+                detail["cluster_id"],
+                detail["cluster_label"],
+                detail["cluster_size"],
+                detail["product"],
+                detail["vendor"],
+                detail["title"],
+            )
             confirmation = confirm_software_match(doc, source, match, cfg)
             if not confirmation["related"]:
                 llm_rejected += 1
                 log.info(
-                    "  LLM rejected %s (%s): %s",
-                    vid,
-                    match["term"],
+                    "  LLM rejected %s term=%r confidence=%s reason=%s",
+                    detail["id"],
+                    detail["term"],
+                    confirmation["confidence"],
                     confirmation["reason"],
                 )
                 continue
@@ -326,6 +369,15 @@ def build_filtered_matches(cfg):
             mark, reasons = mark_match(severity, match, published)
             reasons.append(f"llm_related:{confirmation['confidence']}")
             reasons.append(f"llm_reason:{confirmation['reason']}")
+            log.info(
+                "  LLM accepted %s term=%r cluster=%s mark=%d confidence=%s reason=%s",
+                detail["id"],
+                detail["term"],
+                detail["cluster_label"],
+                mark,
+                confirmation["confidence"],
+                confirmation["reason"],
+            )
             matches.append({
                 "source": source,
                 "id": vid,
@@ -340,13 +392,50 @@ def build_filtered_matches(cfg):
                 "title": doc.get("title") or "",
             })
     capped = cap_per_cluster(matches, max_per_cluster) if max_per_cluster else matches
-    payload = make_payload(ranked_matches(capped, top_n))
+    if max_per_cluster and len(capped) < len(matches):
+        kept_ids = {item["id"] for item in capped}
+        for item in matches:
+            if item["id"] not in kept_ids:
+                log.info(
+                    "  Cluster cap dropped %s [%s] cluster=%s mark=%d title=%s",
+                    item["id"],
+                    item["severity"],
+                    item["cluster_label"],
+                    item["mark"],
+                    item["title"],
+                )
+    ranked = ranked_matches(capped, top_n)
+    if len(ranked) < len(capped):
+        kept_ids = {item["id"] for item in ranked}
+        for item in capped:
+            if item["id"] not in kept_ids:
+                log.info(
+                    "  Top-N dropped %s [%s] cluster=%s mark=%d title=%s",
+                    item["id"],
+                    item["severity"],
+                    item["cluster_label"],
+                    item["mark"],
+                    item["title"],
+                )
+    for index, item in enumerate(ranked, 1):
+        log.info(
+            "  Shortlist #%d %s [%s] mark=%d term=%r cluster=%s title=%s",
+            index,
+            item["id"],
+            item["severity"],
+            item["mark"],
+            item["matched_software"],
+            item["cluster_label"],
+            item["title"],
+        )
+    payload = make_payload(ranked)
     log.info(
-        "Cluster match filter: keyword_hits=%d llm_accepted=%d llm_rejected=%d after_cluster_cap=%d",
+        "Cluster match filter: keyword_hits=%d llm_accepted=%d llm_rejected=%d after_cluster_cap=%d shortlisted=%d",
         keyword_hits,
         len(matches),
         llm_rejected,
         len(capped),
+        len(ranked),
     )
     return payload, {
         "marked": len(matches),
