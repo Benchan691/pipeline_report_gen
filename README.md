@@ -75,7 +75,7 @@ Copy [`.env.example`](.env.example) to `.env` and set:
 After report generation, the default pipeline emails the timestamped output folder zip to Zimbra with subject `PIPELINE_UPLOAD:<folder>`. On the eDrive machine, run:
 
 ```bash
-.venv/bin/python cnvd_docx.py --config config.json --receive-transfer
+.venv/bin/python cnvd_docx.py --receive-transfer
 ```
 
 The receiver checks the latest 10 messages in Inbox folder id `2`, downloads the matching zip, uploads to eDrive, emails the eDrive share link to `EMAIL_RECEIVER`, then deletes the transfer email.
@@ -95,13 +95,13 @@ To regenerate reports from an existing evidence JSON without new web/AI extracti
 To translate existing evidence JSON in place without building reports:
 
 ```bash
-.venv/bin/python cnvd_docx.py --config config.json --translate
+.venv/bin/python cnvd_docx.py --translate
 ```
 
 To build reports from existing evidence JSON without rerunning web extraction or sending email:
 
 ```bash
-.venv/bin/python cnvd_docx.py --config config.json --build-reports
+.venv/bin/python cnvd_docx.py --build-reports
 ```
 
 `--build-reports` will backfill missing English translations before writing the report files.
@@ -109,7 +109,7 @@ To build reports from existing evidence JSON without rerunning web extraction or
 To run software-cluster matching only (keyword + LLM confirmation) without search, evidence extraction, or report generation:
 
 ```bash
-.venv/bin/python cnvd_docx.py --config config.json --cluster-match
+.venv/bin/python cnvd_docx.py --cluster-match
 ```
 
 `--cluster-match` requires MongoDB and the configured local AI (`ai_base_url` / `ai_model`). It prints detailed per-match logs (keyword hits, LLM accept/reject, cap drops, shortlist) and exits without writing output files.
@@ -121,7 +121,7 @@ Cluster-match LLM confirmation uses **thinking mode** (`enable_thinking: true`) 
 One command runs the full workflow (cluster matching + report generation):
 
 ```bash
-.venv/bin/python cnvd_docx.py --config config.json
+.venv/bin/python cnvd_docx.py
 ```
 
 Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-07.06_周報.docx` and `2026.06.30-07.06_周報_en.docx`).
@@ -129,7 +129,7 @@ Outputs are written to dated paths derived from `config.json` (e.g. `2026.06.30-
 To upload an existing run folder to eDrive and email the share link:
 
 ```bash
-.venv/bin/python cnvd_docx.py --config config.json --send-email 20260706_173000
+.venv/bin/python cnvd_docx.py --send-email 20260706_173000
 ```
 
 This uploads the folder under `output_root` to eDrive and emails the share URL. You can also pass an absolute path or a path already under `output/`.

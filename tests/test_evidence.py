@@ -7,8 +7,10 @@ from pipeline.evidence import (
     build_ai_payload,
     cards_missing_english,
     extract_json,
+    evidence_prompt,
     merge_cards,
     strip_thinking,
+    translation_prompt,
 )
 
 
@@ -26,6 +28,19 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("thinking_budget_tokens", disabled)
         self.assertEqual(enabled["chat_template_kwargs"], {"enable_thinking": True})
         self.assertEqual(enabled["thinking_budget_tokens"], 2048)
+
+    def test_prompts_require_grounded_json_and_preserve_technical_values(self):
+        result = {"task_type": "how_to_respond", "url": "https://vendor.example/advisory", "title": "Advisory", "snippet": "Update to 1.2.3", "page_content": ""}
+        candidate = {"cnvd_id": "CNVD-1", "cve_id": "CVE-2026-1", "search_id": "CVE-2026-1", "title": "Product issue", "severity": "High", "summary": ""}
+        evidence_system, evidence_user = evidence_prompt(result, candidate)
+        translation_system, translation_user = translation_prompt({"title": "漏洞", "what_happened": "", "why_matters": "", "how_to_respond": "升级到 1.2.3"})
+
+        self.assertIn("only facts explicitly supported", evidence_system)
+        self.assertIn("how_to_respond", evidence_system)
+        self.assertIn("supplied source URL", evidence_system)
+        self.assertEqual(json.loads(evidence_user)["task_type"], "how_to_respond")
+        self.assertIn("Do not translate CVE/CNVD IDs", translation_system)
+        self.assertEqual(json.loads(translation_user)["how_to_respond"], "升级到 1.2.3")
 
     def test_merge_and_translate_cards_preserves_bilingual_fields(self):
         candidate = {"cnvd_id": "CNVD-1", "search_id": "CNVD-1", "title": "Title", "summary": "", "solution": "", "doc": {"details": {"cnvd": {}}}}

@@ -103,9 +103,15 @@ def normalize_card(raw, result, candidate):
 
 def evidence_prompt(result, candidate):
     system = (
-        "Extract cybersecurity evidence in Simplified Chinese. Use only the supplied search result. "
-        "Return one strict JSON object only. If a field is unsupported, use empty string, empty array, or null. "
-        "confidence must be high, medium, or low."
+        "You are a cautious cybersecurity analyst. Extract only facts explicitly supported by the supplied source; "
+        "do not infer affected versions, exploitability, patches, or impact. Write concise Simplified Chinese. "
+        "Prioritize the field named by task_type, but fill any other field only when the source supports it. "
+        "Return one JSON object only—no Markdown, explanation, or card wrapper—with exactly these keys: "
+        "cnvd_id, cve_id, search_id, title, what_happened, why_matters, how_to_respond, affected_versions, "
+        "fixed_versions, cvss_score, cvss_vector, references, confidence. "
+        "Use empty strings, empty arrays, or null for unsupported values. Keep versions, CVE/CNVD IDs, CVSS vectors, "
+        "and URLs exact. references may contain only the supplied source URL. "
+        "Set confidence to high for direct, explicit evidence; medium for relevant but incomplete evidence; otherwise low."
     )
     user = {
         "required_keys": EVIDENCE_KEYS,
@@ -118,10 +124,11 @@ def evidence_prompt(result, candidate):
 
 def translation_prompt(card):
     system = (
-        "Translate the supplied cybersecurity report fields from Simplified Chinese to English. "
-        "Preserve technical identifiers, version strings, and vulnerability terminology. "
-        "Return one strict JSON object only with translated string values for title, what_happened, why_matters, and how_to_respond. "
-        "If a field is empty, return an empty string."
+        "Translate the supplied cybersecurity report fields from Simplified Chinese to clear, concise English. "
+        "Preserve meaning and certainty; do not add remediation, impact, or context. Do not translate CVE/CNVD IDs, "
+        "CVSS vectors, version strings, URLs, product names, vendor names, code, or commands. "
+        "Return one JSON object only—no Markdown or explanation—with exactly these string keys: title, what_happened, "
+        "why_matters, how_to_respond. Preserve empty fields as empty strings."
     )
     user = {
         "title": card.get("title") or "",

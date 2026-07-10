@@ -7,7 +7,7 @@ import zipfile
 from datetime import datetime
 from unittest.mock import patch
 
-from pipeline.cli import load_or_build_cards
+from pipeline.cli import build_arg_parser, load_or_build_cards
 from pipeline.evidence import inspect_existing_evidence, write_evidence
 from pipeline.output import apply_run_output_paths, report_date_prefix
 from pipeline.transfer import safe_extract_transfer_zip
@@ -16,6 +16,12 @@ from pipeline.transfer import safe_extract_transfer_zip
 class PipelineTests(unittest.TestCase):
     def candidate(self, identifier):
         return {"cnvd_id": identifier, "search_id": identifier, "title": identifier, "summary": "", "solution": "", "doc": {"details": {"cnvd": {}}}}
+
+    def test_cli_always_uses_the_repository_config(self):
+        parser = build_arg_parser()
+        self.assertFalse(any(action.dest == "config" for action in parser._actions))
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--config", "other.json"])
 
     def test_cache_reuses_valid_cards_and_filters_stale_data(self):
         candidate = self.candidate("CNVD-1")

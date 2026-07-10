@@ -51,8 +51,8 @@ C0030,Notepad++,8,v2_preserved,false,Notepad++ | Notepad++ (32-bit x86) | Notepa
 C0309,Office / Document Tools,8,human_review_cn_category,true,PPT插件 | PPT美化大师 | 万彩办公大师OfficeBox | 幻灯片 | 文档 | 新点模板制作工具-Word插件 | 腾讯文档 | 表格
 C0031,Tortoisegit,8,v2_preserved,false,TortoiseGit 2.11.0.0 (64 bit) | TortoiseGit 2.12.0.0 (64 bit) | TortoiseGit 2.13.0.1 (64 bit) | TortoiseGit 2.14.0.1 (64 bit) | TortoiseGit 2.15.0.0 (64 bit) | TortoiseGit 2.17.0.2 (64 bit) | TortoiseGit 2.5.0.0 (64 bit) | TortoiseGit 2.9.0.0 (64 bit)
 C0322,Cloud Storage / Notes / Personal Productivity,7,human_review_cn_category,true,互传 | 印象笔记 v. | 天翼云盘 | 好用便签 | 日历清单 | 滴答清单 版本 | 语雀
-C0033,Microsoft .NET Framework Targeting Pack,7,v2_preserved,false,Microsoft .NET Framework 4.6 Targeting Pack | Microsoft .NET Framework 4.6.1 Targeting Pack | Microsoft .NET Framework 4.6.1 Targeting Pack (ENU) | Microsoft .NET Framework 4.6.2 Targeting Pack | Microsoft .NET Framework 4.6.2 Targeting Pack (ENU) | Microsoft .NET Framework 4.8.1 Targeting Pack | Microsoft .NET Framework 4.8.1 Targeting Pack (ENU)
 C0299,ePass UKey Middleware,7,human_review_cn_ca_ukey,true,ePass2000-FT11 (仅用做移除) | ePass3000 (仅用做移除) | ePass3000GM_ePass3000GM (仅用做移除) | ePass3000GM_SCCA_ePass3000GM (仅用做移除) | ePass3000GM_SZCA (仅用做移除) | ePass3003 (仅用做移除) | ePass3003_GFA (仅用做移除)
+C0033,Microsoft .NET Framework Targeting Pack,7,v2_preserved,false,Microsoft .NET Framework 4.6 Targeting Pack | Microsoft .NET Framework 4.6.1 Targeting Pack | Microsoft .NET Framework 4.6.1 Targeting Pack (ENU) | Microsoft .NET Framework 4.6.2 Targeting Pack | Microsoft .NET Framework 4.6.2 Targeting Pack (ENU) | Microsoft .NET Framework 4.8.1 Targeting Pack | Microsoft .NET Framework 4.8.1 Targeting Pack (ENU)
 C0206,交通银行网银组件,7,human_review_cn_bank_component,false,交通银行USBKey | 交通银行企业网银 | 交通银行密码控件 (仅用做移除) | 交通银行网上银行安全控件 | 交通银行网银向导 | 交通银行网银安全控件 V1.0.0.8 | 卸载交通银行USBKey（飞天诚信）
 C0204,Asiainfo Security,6,v2_preserved,true,Asiainfo Security OfficeScan Agent | AsiaInfo Security TrustOne | AsiaInfo Security Vulnerability Protection Agent | 亚信安全TrustOne | 亚信安全信端TrustOne | 亚信安全漏洞防护客户端
 C0290,BJCA Certificate/UKey Middleware,6,human_review_cn_ca_ukey,true,BJCA OTGKeyHid(AK5018-D) CSP驱动 | GM3000中间件(BJCA) 版本 | UltraSec USK218 CSP(BJCA) V1.0 | UltraSec USK218_P1011 CSP(BJCA) V1.0 | 卸载BJCA 证书应用环境 | 林果一代UKEY驱动 (Bjca U3073)
@@ -70,8 +70,9 @@ C0038,Microsoft .NET Core Windows Server Hosting,5,v2_preserved,false,Microsoft 
 C0039,Microsoft ASP.NET Mvc,5,v2_preserved,false,Microsoft ASP.NET MVC | Microsoft ASP.NET MVC 2 | Microsoft ASP.NET MVC 3 | Microsoft ASP.NET MVC 3 - CHS | Microsoft ASP.NET MVC 4
 C0208,Microsoft Azure,5,v2_preserved,true,Microsoft Azure Libraries for .NET – v2.9 | Microsoft Azure Plug-In for Veeam Backup & Replication | Microsoft Azure PowerShell - April 2018 | Microsoft Azure Storage Emulator - | Microsoft Azure Storage Explorer version
 C0040,Microsoft Office Standard,5,v2_preserved,false,Microsoft Office Standard 2007 | Microsoft Office Standard 2013 | Microsoft Office Standard 2016 | Microsoft Office Standard 2019 - zh-cn | Microsoft Office Standard Edition 2003
-C0042,Microsoft SQL Server Management Objects,5,v2_preserved,false,Microsoft SQL Server 2008 R2 Management Objects | Microsoft SQL Server 2012 Management Objects | Microsoft SQL Server 2012 Management Objects  (x64) | Microsoft SQL Server 2014 Management Objects | Microsoft SQL Server 2014 Management Objects  (x64)
 C0041,Microsoft Silverlight SDK,5,v2_preserved,false,Microsoft Silverlight | Microsoft Silverlight 3 SDK - 中文(简体) | Microsoft Silverlight 4 SDK | Microsoft Silverlight 4 SDK - 中文(简体) | Microsoft Silverlight 5 SDK
+C0042,Microsoft SQL Server Management Objects,5,v2_preserved,false,Microsoft SQL Server 2008 R2 Management Objects | Microsoft SQL Server 2012 Management Objects | Microsoft SQL Server 2012 Management Objects  (x64) | Microsoft SQL Server 2014 Management Objects | Microsoft SQL Server 2014 Management Objects  (x64)
+C0043,microsoft visio 专业版,5,v2_preserved,false,Microsoft Visio - zh-cn | Microsoft Visio 专业版 2016 | Microsoft Visio 专业版 2019 - zh-cn | Microsoft Visio 标准版 2016 | Microsoft Visio 标准版 2016 - zh-cn
 C0044,Microsoft Vss Writer For SQL Server,5,v2_preserved,false,Microsoft VSS Writer for SQL Server 2012 | Microsoft VSS Writer for SQL Server 2016 | Microsoft VSS Writer for SQL Server 2017 | Microsoft VSS Writer for SQL Server 2019 | Microsoft VSS Writer for SQL Server 2022
 C0209,Microsoft Windows SDK,5,v2_preserved,true,Microsoft Windows SDK for Visual Studio 2008 .NET Framework Tools | Microsoft Windows SDK for Visual Studio 2008 Headers and Libraries | Microsoft Windows SDK for Visual Studio 2008 SDK Reference Assemblies and IntelliSense | Microsoft Windows SDK for Visual Studio 2008 Tools | Microsoft Windows SDK for Visual Studio 2008 Win32 Tools
 C0045,Mindmaster,5,v2_preserved,false,MindMaster(Build 10.0.7.196) | MindMaster(Build 10.7.2.213) | MindMaster(Build 10.8.0.329) | MindMaster(Build 11.1.7.807) | MindMaster(Build 12.2.3.1067)
@@ -80,7 +81,6 @@ C0289,Printer Drivers/Utilities,5,human_review_cn_category,true,B50 打印机驱
 C0046,Pycharm,5,v2_preserved,false,PyCharm 2024.1 | PyCharm 2024.1.1 | PyCharm 2024.3.1.1 | PyCharm 2024.3.2 | PyCharm 2025.1.1
 C0211,Veeam Agent,5,v2_preserved,true,Veeam Agent for Linux Redistributable | Veeam Agent for Mac Redistributable | Veeam Agent for Microsoft Windows | Veeam Agent for Microsoft Windows Redistributable | Veeam Agent for Unix Redistributable
 C0331,Youdao Apps / 有道,5,human_review_cn_exact_family,true,有道云笔记 | 有道云笔记Beta版 | 有道词典 | 网易有道翻译 | 网易有道词典
-C0043,microsoft visio 专业版,5,v2_preserved,false,Microsoft Visio - zh-cn | Microsoft Visio 专业版 2016 | Microsoft Visio 专业版 2019 - zh-cn | Microsoft Visio 标准版 2016 | Microsoft Visio 标准版 2016 - zh-cn
 C0231,招商银行网银组件,5,human_review_cn_bank_component,true,招商银行专业版 | 招商银行个人银行PC版 | 招商银行网银助手 | 招行U-BANK | 招行企业服务助手
 C0048,速打v3,5,v2_preserved,false,速打V3.0.0.1 | 速打V3.0.1.0 | 速打V3.0.1.8 | 速打V3.1.1.5 | 速打V3.2.6.2
 C0049,Adobe Acrobat Reader,4,v2_preserved,false,Adobe Acrobat Reader | Adobe Acrobat Reader - Chinese Simplified | Adobe Acrobat Reader DC | Adobe Acrobat Reader DC - Chinese Simplified
@@ -100,9 +100,9 @@ C0215,Tencent Meeting,4,cn_alias_to_english_product;v2_preserved,true,Tencent Me
 C0327,Tencent WeChat,4,human_review_cn_exact_family,true,微信 | 微信开发者工具 | 微信文件传输助手网页版 | 微信（测试版）
 C0216,Veeam Backup,4,v2_preserved,true,Veeam Backup & Replication | Veeam Backup for Microsoft 365 | Veeam Backup Transport | Veeam Backup vPowerNFS
 C0059,Visual Studio Enterprise,4,v2_preserved,false,Visual Studio Enterprise 2019 | Visual Studio Enterprise 2019 (2) | Visual Studio Enterprise 2022 | Visual Studio Enterprise 2022 (2)
+C0060,visual studio 生成工具,4,v2_preserved,false,Visual Studio 15 生成工具 2017 | Visual Studio 生成工具 2019 | Visual Studio 生成工具 2019 (2) | Visual Studio 生成工具 2022
 C0062,Xmind,4,v2_preserved,false,XMind | XMind 8 (v3.7.0) | XMind 8 Update 8 (v3.7.8) | XMind 8 Update 9 (v3.7.9)
 C0063,Xshell,4,v2_preserved,false,NxShell | Xshell 5 | Xshell 7 | Xshell 8
-C0060,visual studio 生成工具,4,v2_preserved,false,Visual Studio 15 生成工具 2017 | Visual Studio 生成工具 2019 | Visual Studio 生成工具 2019 (2) | Visual Studio 生成工具 2022
 C0319,浦发银行网银组件,4,human_review_cn_bank_component,true,上海浦东发展银行网上银行安全控件 v7.4 | 天地融 SPDB CSP 版本 | 浦发银行公司网银 | 浦发银行网上银行U-KEY管理工具（仅用做移除）
 C0317,Access Control / Biometric Client Software,3,human_review_cn_category,true,ZKAccess3.5 门禁管理系统 | ZKTeco考勤管理系统 | 云从科技动作活体检测插件_云之眼
 C0064,Adobe Acrobat Dc,3,v2_preserved,false,Adobe Acrobat (64-bit) | Adobe Acrobat DC | Adobe Acrobat DC (64-bit)
@@ -125,6 +125,7 @@ C0335,Lenovo PC Utilities / 联想,3,human_review_cn_exact_family,true,联想应
 C0334,Meitu Tools / 美图,3,human_review_cn_exact_family,true,美图批处理 | 美图秀秀 | 美图秀秀批处理
 C0072,Microsoft Document Explorer,3,v2_preserved,false,Microsoft Document Explorer 2005 | Microsoft Document Explorer 2008 | Microsoft Document Explorer 2008 语言包 - 简体中文
 C0255,Microsoft Help Viewer,3,human_review_cn_office_family;v2_preserved,true,Microsoft Help Viewer 1.1 Language Pack - CHS | Microsoft Help 查看器 1.0 语言包 - CHS | Microsoft 帮助查看器 2.2 语言包 - 简体中文
+C0073,microsoft help viewer 语言包,3,v2_preserved,false,Microsoft Help Viewer | Microsoft Help Viewer 2.0 语言包 - CHS | Microsoft Help Viewer 2.3 语言包 - 简体中文
 C0074,Microsoft SQL Server Data Tools,3,v2_preserved,false,Microsoft SQL Server Data Tools - CHS (11.1.20627.00) | Microsoft SQL Server Data Tools - enu (11.1.20627.00) | Microsoft SQL Server Data Tools - enu (12.0.41012.0)
 C0075,Microsoft SQL Server Data Tools Build Utilities,3,v2_preserved,false,Microsoft SQL Server Data Tools Build Utilities - CHS (11.1.20627.00) | Microsoft SQL Server Data Tools Build Utilities - enu (11.1.20627.00) | Microsoft SQL Server Data Tools Build Utilities - enu (12.0.30919.1)
 C0076,Microsoft SQL Server Policies,3,v2_preserved,false,Microsoft SQL Server 2008 R2 Policies | Microsoft SQL Server 2012 Policies | Microsoft SQL Server 2016 Policies
@@ -134,6 +135,7 @@ C0314,Microsoft Windows Assistant/Health Check,3,human_review_cn_windows_family,
 C0222,Mysql Installer,3,v2_preserved,true,MySQL Installer | MySQL Installer - Community | MySQL Installer for Windows - Community
 C0308,NVIDIA Drivers,3,human_review_cn_driver_family,true,NVIDIA 3D Vision 驱动程序 | NVIDIA HD 音频驱动程序 | NVIDIA 图形驱动程序
 C0223,Openvpn,3,v2_preserved,true,OpenVPN 2.4.5-I601 | OpenVPN 2.5.4-I604 amd64 | OpenVPN Connect
+C0058,pdf编辑器,3,v2_preserved,false,PDF编辑器 V1.7 | 全能PDF编辑器 | 迅捷PDF编辑器
 C0224,Pl-2303 Usb-to-serial,3,v2_preserved,true,PL-2303 USB-to-Serial | PL-2303 USB-to-Serial Driver | PL-2303 Vista Driver Installer
 C0225,Putty,3,v2_preserved,true,PuTTY pre-release 0.77:2022-03-24.5d58931 (64-bit) | PuTTY pre-release 0.79:2023-05-04.aa87c20 (64-bit) | PuTTY release
 C0323,Tencent Apps / 腾讯应用,3,human_review_cn_vendor_family,true,企鹅游戏中心_ | 腾讯桌面整理 | 腾讯视频
@@ -142,14 +144,10 @@ C0227,Vidyo Desktop,3,v2_preserved,true,Vidyo Desktop 3.6.18 - (op095) | Vidyo D
 C0079,Visual Studio Community,3,v2_preserved,false,Visual Studio Community 2017 | Visual Studio Community 2019 | Visual Studio Community 2022
 C0080,Visual Studio Professional,3,v2_preserved,false,Visual Studio Professional 2017 | Visual Studio Professional 2019 | Visual Studio Professional 2019 (its)
 C0081,Wps Office,3,v2_preserved,false,WPS Office (12.1.0.19770) | WPS Office (12.1.0.20784) | WPS Office (12.1.0.21171)
-C0073,microsoft help viewer 语言包,3,v2_preserved,false,Microsoft Help Viewer | Microsoft Help Viewer 2.0 语言包 - CHS | Microsoft Help Viewer 2.3 语言包 - 简体中文
-C0058,pdf编辑器,3,v2_preserved,false,PDF编辑器 V1.7 | 全能PDF编辑器 | 迅捷PDF编辑器
 C0320,中国农业银行网银组件,3,human_review_cn_bank_component,true,中国农业银行网上银行证书工具软件 飞天诚信 Extend KEY 卸载 | 中国农业银行网银助手 | 中国农业银行网银安全控件 卸载
 C0321,网证通 Certificate Middleware,3,human_review_cn_ca_ukey,true,中山公积金-网证通驱动安装包 | 网证通安全中间件(32&64) | 网证通安全客户端
 C0232,诺诺数电,3,v2_preserved,true,诺诺数电打印助手 | 诺诺数电智能开票 | 诺诺数电票
 C0233,.NET Reflector,2,v2_preserved,true,.NET Reflector Desktop | .NET Reflector Visual Studio Extension
-C0234,AMD Catalyst,2,v2_preserved,true,AMD Catalyst Control Center | AMD Catalyst Install Manager
-C0235,AMD Software,2,v2_preserved,true,AMD Settings | AMD Software
 C0082,Adobe After Effects,2,v2_preserved,false,Adobe After Effects 2024 | Adobe After Effects 2025
 C0083,Adobe Audition,2,v2_preserved,false,Adobe Audition 2024 | Adobe Audition 2025
 C0084,Adobe Bridge,2,v2_preserved,false,Adobe Bridge 2024 | Adobe Bridge 2025
@@ -158,17 +156,23 @@ C0086,Adobe Incopy,2,v2_preserved,false,Adobe InCopy 2024 | Adobe InCopy 2025
 C0087,Adobe Indesign,2,v2_preserved,false,Adobe InDesign 2024 | Adobe InDesign 2025
 C0088,Adobe Media Encoder,2,v2_preserved,false,Adobe Media Encoder 2024 | Adobe Media Encoder 2025
 C0089,Agent,2,v2_preserved,false,Agent 2.0.11 x64 | Agent 2.0.11 x86
+C0090,aip电子签章系统,2,v2_preserved,false,AIP电子签章系统 V3.1.1.4 | 点聚AIP电子签章系统 V3.1.1.4
 C0330,Alipay Security Components / 支付宝安全组件,2,human_review_cn_payment_component,true,支付宝安全控件 | 支付宝数字证书组件
+C0234,AMD Catalyst,2,v2_preserved,true,AMD Catalyst Control Center | AMD Catalyst Install Manager
+C0235,AMD Software,2,v2_preserved,true,AMD Settings | AMD Software
 C0236,Apple Support Software,2,v2_preserved,true,Apple Mobile Device Support | Apple Software Update
+C0091,apple 应用程序支持 位,2,v2_preserved,false,Apple 应用程序支持 (32 位) | Apple 应用程序支持 (64 位)
 C0237,Avaya Integrated Management,2,v2_preserved,true,Avaya Integrated Management Administration Tools 6.0 SP14 | Avaya Integrated Management Site Administration
 C0092,Axure Rp,2,v2_preserved,false,Axure RP 10 | Axure RP 11
 C0238,Brother Mfl-pro Suite,2,v2_preserved,true,Brother MFL-Pro Suite DCP-J140W | Brother MFL-Pro Suite MFC-7860DN
 C0239,Brother P-touch,2,v2_preserved,true,Brother P-touch Editor | Brother P-touch Update Software
 C0093,C Lodop,2,v2_preserved,false,C-Lodop(32-bit) | C-Lodop(64-bit)
-C0293,CFCA UKey Middleware,2,human_review_cn_ca_ukey,true,CFCA UKey用户管理工具 V1.1.8.26 | CFCA UKey用户管理工具 V1.1.8.28
+C0240,cad迷你,2,v2_preserved,true,CAD迷你画图 | CAD迷你看图
 C0241,Canon G Series,2,v2_preserved,true,Canon G3000 series MP Drivers | Canon G3000 series On-screen Manual
 C0095,Canon Mf440 Series,2,v2_preserved,false,Canon MF440 Series | Canon MF460 Series
 C0242,Canon Printer Scanner Software,2,v2_preserved,true,Canon Inkjet Printer/Scanner/Fax Extended Survey Program | Canon My Printer
+C0096,ca数字证书客户端,2,v2_preserved,false,CA数字证书客户端 | GDCA数字证书客户端
+C0293,CFCA UKey Middleware,2,human_review_cn_ca_ukey,true,CFCA UKey用户管理工具 V1.1.8.26 | CFCA UKey用户管理工具 V1.1.8.28
 C0098,Check Point Smartconsole,2,v2_preserved,false,Check Point SmartConsole R81.10 | Check Point SmartConsole R81.20
 C0295,Chinese Online Banking Components,2,human_review_cn_category,true,CSII网银安全服务 v20.2.21.0 | 网银支付助手辅助应用
 C0243,Cisco Secure Client,2,v2_preserved,true,Cisco Secure Client - Diagnostics and Reporting Tool | Cisco Secure Client - Start Before Login
@@ -199,8 +203,8 @@ C0118,Hp Ftp Plugin,2,v2_preserved,false,HP FTP Plugin | HP SFTP Plugin
 C0119,I.r.i.s Ocr,2,v2_preserved,false,I.R.I.S OCR | I.R.I.S. OCR
 C0120,IIS Express,2,v2_preserved,false,IIS 10.0 Express | IIS 8.0 Express
 C0121,IIS Express Application Compatibility Database For,2,v2_preserved,false,IIS Express Application Compatibility Database for x64 | IIS Express Application Compatibility Database for x86
-C0250,IP Office,2,v2_preserved,true,IP Office Admin Lite | IP Office Voicemail Pro
 C0123,Intellij Idea Community,2,v2_preserved,false,IntelliJ IDEA Community Edition 2019.2.2 | IntelliJ IDEA Community Edition 2023.1
+C0250,IP Office,2,v2_preserved,true,IP Office Admin Lite | IP Office Voicemail Pro
 C0124,Jetbrains Pycharm Community,2,v2_preserved,false,JetBrains PyCharm Community Edition 2018.3 | JetBrains PyCharm Community Edition 2019.2.4
 C0251,Kingdee K/3,2,v2_preserved,true,Kingdee K/3 V13.0Wise Service Pack -PT110783 | Kingdee K/3 WISE
 C0339,Kingsoft PowerWord / 金山词霸,2,human_review_cn_exact_family,false,金山词霸2016 | 金山词霸2024
@@ -209,11 +213,12 @@ C0253,Logitech Unifying,2,v2_preserved,true,Logitech Unifying èí?t | Logitech 
 C0125,Microsoft .NET Compact Framework,2,v2_preserved,false,Microsoft .NET Compact Framework | Microsoft .NET Compact Framework 2.0 SP2
 C0126,Microsoft .NET Framework Client Profile,2,v2_preserved,false,Microsoft .NET Framework 4 Client Profile | Microsoft .NET Framework 4 Client Profile 简体中文语言包
 C0127,Microsoft .NET Windows Server Hosting,2,v2_preserved,false,Microsoft .NET 5.0.9 - Windows Server Hosting | Microsoft .NET 6.0.13 - Windows Server Hosting
-C0129,Microsoft ASP.NET Web Pages,2,v2_preserved,false,Microsoft ASP.NET Web Pages | Microsoft ASP.NET Web Pages - CHS
 C0128,Microsoft Access Database Engine,2,v2_preserved,false,Microsoft Access database engine 2010 (Chinese (Simplified)) | Microsoft Access database engine 2016 (English)
+C0129,Microsoft ASP.NET Web Pages,2,v2_preserved,false,Microsoft ASP.NET Web Pages | Microsoft ASP.NET Web Pages - CHS
 C0130,Microsoft Azure Authoring Tools,2,v2_preserved,false,Microsoft Azure Authoring Tools - v2.9.6 | Microsoft Azure Authoring Tools - v2.9.7
 C0131,Microsoft Azure Compute Emulator,2,v2_preserved,false,Microsoft Azure Compute Emulator - v2.9.6 | Microsoft Azure Compute Emulator - v2.9.7
 C0133,Microsoft Mpi,2,v2_preserved,false,Microsoft MPI (10.1.12498.18) | Microsoft MPI (7.0.12437.8)
+C0134,microsoft office ltsc 标准版,2,v2_preserved,false,Microsoft Office LTSC 标准版 2021 - zh-cn | Microsoft Office LTSC 标准版 2021 - zh-cn.proof
 C0135,Microsoft Office Visio Professional,2,v2_preserved,false,Microsoft Office Visio Professional 2003 | Microsoft Office Visio Professional 2007
 C0136,Microsoft Report Viewer Redistributable,2,v2_preserved,false,Microsoft Report Viewer Redistributable 2008 | Microsoft Report Viewer Redistributable 2008 SP1
 C0137,Microsoft Report Viewer Runtime,2,v2_preserved,false,Microsoft Report Viewer 2012 Runtime | Microsoft Report Viewer 2015 Runtime
@@ -225,16 +230,20 @@ C0142,Microsoft SQL Server Express Localdb,2,v2_preserved,false,Microsoft SQL Se
 C0143,Microsoft SQL Server Localdb,2,v2_preserved,false,Microsoft SQL Server 2016 LocalDB | Microsoft SQL Server 2019 LocalDB
 C0144,Microsoft SQL Server Rs Addin For Sharepoint,2,v2_preserved,false,Microsoft SQL Server 2012 RS Add-in for SharePoint | Microsoft SQL Server 2016 RS Addin for SharePoint
 C0145,Microsoft SQL Server System Clr Types,2,v2_preserved,false,Microsoft SQL Server System CLR Types | Microsoft SQL Server System CLR Types (x64)
+C0146,microsoft sql server t sql 语言服务,2,v2_preserved,false,Microsoft SQL Server 2017 T-SQL 语言服务 | Microsoft SQL Server 2019 T-SQL 语言服务
 C0147,Microsoft SQL Server Transact SQL Scriptdom,2,v2_preserved,false,Microsoft SQL Server 2012 Transact-SQL ScriptDom | Microsoft SQL Server 2014 Transact-SQL ScriptDom
+C0148,microsoft sql server 安装程序支持文件,2,v2_preserved,false,Microsoft SQL Server 2008 安装程序支持文件 | Microsoft SQL Server 安装程序支持文件(英语)
 C0256,Microsoft Sync Framework,2,v2_preserved,true,Microsoft Sync Framework SDK v1.0 SP1 zh-CHS | Microsoft Sync Framework Services v1.0 SP1 (x64) zh-CHS
 C0149,Microsoft Sync Framework Runtime,2,v2_preserved,false,Microsoft Sync Framework Runtime v1.0 (x64) | Microsoft Sync Framework Runtime v1.0 SP1 (x64) zh-CHS
 C0150,Microsoft Sync Services For Ado.net,2,v2_preserved,false,Microsoft Sync Services for ADO.NET v2.0 (x64) | Microsoft Sync Services for ADO.NET v2.0 SP1 (x64) zh-CHS
+C0151,microsoft visio ltsc 标准版,2,v2_preserved,false,Microsoft Visio LTSC 标准版 2021 - zh-cn | Microsoft Visio LTSC 标准版 2021 - zh-cn.proof
 C0152,Microsoft Visual C++ Runtime,2,v2_preserved,false,Microsoft Visual C++ 2010  x64 Runtime | Microsoft Visual C++ 2010  x86 Runtime
 C0153,Microsoft Visual F# Runtime,2,v2_preserved,false,Microsoft Visual F# 2.0 Runtime | Microsoft Visual F# 2.0 Runtime 语言包 - 简体中文
 C0154,Microsoft Visual J# Redistributable Package,2,v2_preserved,false,Microsoft Visual J# 2.0 Redistributable Package | Microsoft Visual J# 2.0 Redistributable Package - SE (x64)
 C0155,Microsoft Visual Studio Code,2,v2_preserved,false,Microsoft Visual Studio Code | Microsoft Visual Studio Code (User)
 C0156,Microsoft Visual Studio Shell Integrated,2,v2_preserved,false,Microsoft Visual Studio 2008 Shell (integrated mode) - ENU | Microsoft Visual Studio 2010 Shell (Integrated) - ENU
 C0157,Microsoft Visual Studio Shell Isolated,2,v2_preserved,false,Microsoft Visual Studio 2010 Shell (Isolated) - ENU | Microsoft Visual Studio 2015 Shell (Isolated)
+C0158,microsoft visual studio 专业版,2,v2_preserved,false,Microsoft Visual Studio 2008 专业版 - 简体中文 | Microsoft Visual Studio 2010 专业版 - 简体中文
 C0159,Microsoft Web Deploy,2,v2_preserved,false,Microsoft Web Deploy 3.5 | Microsoft Web Deploy 4.0
 C0160,Microsoft Web Deploy Dbsqlpackage Provider,2,v2_preserved,false,Microsoft Web Deploy dbSqlPackage Provider - CHS | Microsoft Web Deploy dbSqlPackage Provider - enu
 C0161,Miniconda3 Py3,2,v2_preserved,false,Miniconda3 py312_24.7.1-0 (Python 3.12.4 64-bit) | Miniconda3 py37_4.11.0 (Python 3.7.11 64-bit)
@@ -287,15 +296,6 @@ C0190,Winmerge,2,v2_preserved,false,WinMerge | WinMerge 2.16.0.0 x64
 C0191,Winpcap,2,v2_preserved,false,WinPcap 4.1.2 | WinPcap 4.1.3
 C0192,Xftp,2,v2_preserved,false,Xftp 7 | Xftp 8
 C0338,Xunjie Tools / 迅捷,2,human_review_cn_vendor_family,true,迅捷OCR文字识别软件 | 迅捷文字转语音
-C0090,aip电子签章系统,2,v2_preserved,false,AIP电子签章系统 V3.1.1.4 | 点聚AIP电子签章系统 V3.1.1.4
-C0091,apple 应用程序支持 位,2,v2_preserved,false,Apple 应用程序支持 (32 位) | Apple 应用程序支持 (64 位)
-C0240,cad迷你,2,v2_preserved,true,CAD迷你画图 | CAD迷你看图
-C0096,ca数字证书客户端,2,v2_preserved,false,CA数字证书客户端 | GDCA数字证书客户端
-C0134,microsoft office ltsc 标准版,2,v2_preserved,false,Microsoft Office LTSC 标准版 2021 - zh-cn | Microsoft Office LTSC 标准版 2021 - zh-cn.proof
-C0146,microsoft sql server t sql 语言服务,2,v2_preserved,false,Microsoft SQL Server 2017 T-SQL 语言服务 | Microsoft SQL Server 2019 T-SQL 语言服务
-C0148,microsoft sql server 安装程序支持文件,2,v2_preserved,false,Microsoft SQL Server 2008 安装程序支持文件 | Microsoft SQL Server 安装程序支持文件(英语)
-C0151,microsoft visio ltsc 标准版,2,v2_preserved,false,Microsoft Visio LTSC 标准版 2021 - zh-cn | Microsoft Visio LTSC 标准版 2021 - zh-cn.proof
-C0158,microsoft visual studio 专业版,2,v2_preserved,false,Microsoft Visual Studio 2008 专业版 - 简体中文 | Microsoft Visual Studio 2010 专业版 - 简体中文
 C0277,万能五笔输入法,2,v2_preserved,true,万能五笔内置版 | 万能五笔输入法
 C0278,中兴通简税,2,v2_preserved,true,中兴通简税 | 中兴通简税助手
 C0279,中国建设银行网银组件,2,human_review_cn_bank_component,true,中国建设银行E路护航网银安全组件 | 中国建设银行企业网上银行客户端

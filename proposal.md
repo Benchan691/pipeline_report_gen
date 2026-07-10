@@ -110,7 +110,7 @@ flowchart LR
 
 ```bash
 cd /path/to/pipeline_docx
-.venv/bin/python cnvd_docx.py --config config.json --build-reports
+.venv/bin/python cnvd_docx.py --build-reports
 ```
 
 Note the output folder name from the log (e.g. `output/20260706_173000`).
@@ -135,7 +135,7 @@ Recommended subject line: `PIPELINE_UPLOAD:20260706_173000`
 
 ```bash
 cd /path/to/pipeline_docx
-.venv/bin/python cnvd_docx.py --config config.json --send-email 20260706_173000
+.venv/bin/python cnvd_docx.py --send-email 20260706_173000
 ```
 
 This uploads the folder to eDrive and emails the share link to recipients.

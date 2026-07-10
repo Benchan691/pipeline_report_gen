@@ -36,9 +36,9 @@ def normalize_search_provider(provider):
     return provider
 
 
-def load_config(path, email_only=False):
+def load_config(email_only=False):
     load_dotenv(PROJECT_ROOT / ".env")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(PROJECT_ROOT / "config.json", "r", encoding="utf-8") as f:
         cfg = json.load(f)
     if not email_only:
         required = ["output_docx", "docx_template", "ai_base_url", "ai_model", "evidence_json"]

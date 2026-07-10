@@ -7,7 +7,7 @@ import tempfile
 from datetime import datetime
 
 from pipeline.config import load_config, normalize_search_provider
-from pipeline.constants import DEFAULT_CONFIG, REPORT_LANGS
+from pipeline.constants import REPORT_LANGS
 from pipeline.dependencies import check_dependencies, load_workbook, setup_logging
 from pipeline.docx_report import build_docx
 from pipeline.evidence import (
@@ -181,7 +181,6 @@ def send_email_from_folder(cfg, folder_path):
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(description="Generate CNVD-first evidence-card DOCX and XLSX reports.")
-    parser.add_argument("--config", default=DEFAULT_CONFIG, help="config JSON path")
     parser.add_argument("--self-test", action="store_true", help="run the local test suite without MongoDB, SearXNG, or AI")
     parser.add_argument("--translate", action="store_true", help="translate existing evidence JSON to English fields only")
     parser.add_argument("--build-reports", action="store_true", help="build reports from existing evidence JSON without search or email")
@@ -236,21 +235,21 @@ def main():
 
     setup_logging()
     if args.send_email:
-        log.info("Sending report email from folder %s (config=%s)", args.send_email, args.config)
-        cfg = load_config(args.config, email_only=True)
+        log.info("Sending report email from folder %s", args.send_email)
+        cfg = load_config(email_only=True)
         send_email_from_folder(cfg, args.send_email)
         return
     if args.send_transfer:
-        log.info("Sending transfer email from folder %s (config=%s)", args.send_transfer, args.config)
-        cfg = load_config(args.config, email_only=True)
+        log.info("Sending transfer email from folder %s", args.send_transfer)
+        cfg = load_config(email_only=True)
         try:
             send_transfer_from_folder(cfg, resolve_output_folder(cfg, args.send_transfer))
         except ValueError as exc:
             sys.exit(str(exc))
         return
     if args.receive_transfer:
-        log.info("Receiving transfer email (config=%s)", args.config)
-        cfg = load_config(args.config, email_only=True)
+        log.info("Receiving transfer email")
+        cfg = load_config(email_only=True)
         try:
             folder = receive_transfer(cfg, lambda folder_name: send_email_from_folder(cfg, folder_name))
         except ValueError as exc:
@@ -259,17 +258,17 @@ def main():
             log.info("Received transfer and sent eDrive notification for %s", folder)
         return
 
-    cfg = load_config(args.config)
+    cfg = load_config()
     if args.translate:
-        log.info("Translating evidence JSON (config=%s)", args.config)
+        log.info("Translating evidence JSON")
     elif args.build_reports:
         check_dependencies()
-        log.info("Building reports from existing evidence (config=%s)", args.config)
+        log.info("Building reports from existing evidence")
     elif args.cluster_match:
-        log.info("Running cluster match only (config=%s)", args.config)
+        log.info("Running cluster match only")
     else:
         check_dependencies()
-        log.info("Starting CNVD report pipeline (config=%s)", args.config)
+        log.info("Starting CNVD report pipeline")
         try:
             require_zimbra_config(cfg)
         except ValueError as exc:
