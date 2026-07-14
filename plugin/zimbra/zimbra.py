@@ -1,5 +1,6 @@
 import html
 import re
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -93,7 +94,19 @@ def upload_attachment(host, token, filename, data, content_type="application/oct
     raise RuntimeError(f"Zimbra upload failed: attachment id not found in response {text[:300]}")
 
 
-def zimbra_send_email(cfg, to, subject, body, attachments=None):
+def zimbra_move_message(host, token, message_id, folder_id):
+    soap_request(
+        host,
+        (
+            f'<MsgActionRequest xmlns="urn:zimbraMail">'
+            f'<action id="{html.escape(message_id)}" op="move" l="{html.escape(str(folder_id))}"/>'
+            f"</MsgActionRequest>"
+        ),
+        token,
+    )
+
+
+def zimbra_send_email(cfg, to, subject, body, attachments=None, folder_id=None):
     require_zimbra_config(cfg)
     host = zimbra_host(cfg)
     token = zimbra_login(cfg)
@@ -110,18 +123,33 @@ def zimbra_send_email(cfg, to, subject, body, attachments=None):
         )
 
     attach_xml = "".join(f'<attach aid="{html.escape(aid)}"/>' for aid in attach_ids)
+    subject_text = str(subject or "").strip()
     soap_request(
         host,
         f"""<SendMsgRequest xmlns="urn:zimbraMail">
   <m>
     <e t="t" a="{html.escape(str(to).strip())}"/>
-    <su>{html.escape(str(subject or "").strip())}</su>
+    <su>{html.escape(subject_text)}</su>
     <mp ct="text/plain"><content>{html.escape(str(body or ""))}</content></mp>
     {attach_xml}
   </m>
 </SendMsgRequest>""",
         token,
     )
+
+    dest = str(folder_id or "").strip()
+    if not dest or dest == "2":
+        return
+
+    # Self-transfer mail lands in Inbox; move it into the configured receive folder.
+    for attempt in range(8):
+        for message_id in zimbra_search(host, token, "2", 20):
+            message = zimbra_get_message(host, token, message_id)
+            if message and (message.get("subject") or "").strip() == subject_text:
+                zimbra_move_message(host, token, message_id, dest)
+                return
+        time.sleep(0.5 * (attempt + 1))
+    raise RuntimeError(f"Transfer sent but message not found in Inbox to move to folder {dest}")
 
 
 def zimbra_search(host, token, folder_id, limit):

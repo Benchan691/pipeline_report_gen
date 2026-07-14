@@ -56,6 +56,7 @@ def send_transfer_from_folder(cfg, folder_path):
     require_zimbra_config(cfg)
     folder = Path(folder_path).expanduser().resolve()
     to_addr = zimbra_email(cfg)
+    folder_id = str(cfg.get("zimbra_folder_id") or "2")
     zimbra_send_email(
         cfg,
         to_addr,
@@ -68,8 +69,9 @@ def send_transfer_from_folder(cfg, folder_path):
                 "content_type": "application/zip",
             }
         ],
+        folder_id=folder_id,
     )
-    log.info("Transfer email sent to %s for %s", to_addr, folder)
+    log.info("Transfer email sent to %s folder_id=%s for %s", to_addr, folder_id, folder)
     return folder.name
 
 def _norm_email(value):
