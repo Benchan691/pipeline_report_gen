@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from pipeline.vuln_match import (
     cap_per_cluster,
+    build_filtered_matches,
     clean_term,
     confirm_software_match,
     first_match,
@@ -57,3 +58,59 @@ class VulnerabilityMatchTests(unittest.TestCase):
         self.assertIn("A medium- or low-confidence relationship must be related=false", system)
         self.assertIn("plugins, connectors, integrations", system)
         self.assertEqual(json.loads(user)["product"], "Snowflake Snowpark Python SDK")
+
+    def test_confirmation_rejects_non_boolean_or_unavailable_responses(self):
+        document = {"code": "CNNVD-1", "details": {"cnnvd": {}}}
+        match = {"term": "Chrome", "cluster_label": "Chrome"}
+        cfg = {"ai_base_url": "http://test", "ai_model": "test"}
+        with patch("pipeline.evidence.call_ai", return_value=json.dumps({"related": "false"})):
+            self.assertFalse(confirm_software_match(document, "cnnvd", match, cfg)["related"])
+        with patch("pipeline.evidence.call_ai", return_value="not json"):
+            self.assertFalse(confirm_software_match(document, "cnnvd", match, cfg)["related"])
+        with patch("pipeline.evidence.call_ai", side_effect=SystemExit("offline")):
+            self.assertEqual(confirm_software_match(document, "cnnvd", match, cfg)["reason"], "llm_unavailable")
+
+    def test_post_selection_verification_backfills_and_respects_cluster_cap(self):
+        terms = [
+            {"term": "Chrome", "term_kind": "label", "cluster_id": "chrome", "cluster_label": "Chrome", "cluster_size": 1},
+            {"term": "Java", "term_kind": "label", "cluster_id": "java", "cluster_label": "Java", "cluster_size": 1},
+        ]
+        docs = [
+            {"code": "1", "title": "Chrome critical", "severity": "Critical", "details": {"cnvd": {}}},
+            {"code": "2", "title": "Chrome high", "severity": "High", "details": {"cnvd": {}}},
+            {"code": "3", "title": "Java high", "severity": "High", "details": {"cnvd": {}}},
+            {"code": "4", "title": "Java medium", "severity": "Medium", "details": {"cnvd": {}}},
+        ]
+        cfg = {"vuln_match_top_n": 3, "vuln_match_max_per_cluster": 1}
+
+        with patch("pipeline.vuln_match.software_terms", return_value=terms), \
+             patch("pipeline.vuln_match.docs_for", side_effect=[docs, []]), \
+             patch("pipeline.vuln_match.confirm_software_match", side_effect=[
+                 {"related": False, "confidence": "low", "reason": "wrong product"},
+                 {"related": True, "confidence": "high", "reason": "direct"},
+                 {"related": True, "confidence": "high", "reason": "direct"},
+             ]) as confirm:
+            payload, stats = build_filtered_matches(cfg)
+
+        self.assertEqual([item["id"] for item in payload["matches"]], ["CNVD-2", "CNVD-3"])
+        self.assertEqual(confirm.call_count, 3)
+        self.assertEqual(stats["llm_rejected"], 1)
+        self.assertEqual(stats["cluster_cap_skipped"], 1)
+        self.assertEqual(stats["shortfall"], 1)
+
+    def test_post_selection_stops_verifying_once_full(self):
+        term = {"term": "Chrome", "term_kind": "label", "cluster_id": "chrome", "cluster_label": "Chrome", "cluster_size": 1}
+        docs = [
+            {"code": str(index), "title": f"Chrome {index}", "severity": "High", "details": {"cnvd": {}}}
+            for index in range(1, 4)
+        ]
+        cfg = {"vuln_match_top_n": 2}
+        accepted = {"related": True, "confidence": "high", "reason": "direct"}
+
+        with patch("pipeline.vuln_match.software_terms", return_value=[term]), \
+             patch("pipeline.vuln_match.docs_for", side_effect=[docs, []]), \
+             patch("pipeline.vuln_match.confirm_software_match", return_value=accepted) as confirm:
+            payload, _ = build_filtered_matches(cfg)
+
+        self.assertEqual(len(payload["matches"]), 2)
+        self.assertEqual(confirm.call_count, 2)

@@ -191,15 +191,23 @@ def confirm_software_match(doc, source, match, cfg):
 
     system, user = match_confirmation_prompt(doc, source, match)
     thinking_budget = cfg.get("vuln_match_thinking_budget_tokens")
-    text = call_ai(
-        cfg["ai_base_url"],
-        cfg["ai_model"],
-        system,
-        user,
-        max_tokens=int(cfg.get("vuln_match_ai_max_tokens", 4096)),
-        enable_thinking=True,
-        thinking_budget_tokens=thinking_budget,
-    )
+    try:
+        text = call_ai(
+            cfg["ai_base_url"],
+            cfg["ai_model"],
+            system,
+            user,
+            max_tokens=int(cfg.get("vuln_match_ai_max_tokens", 4096)),
+            enable_thinking=True,
+            thinking_budget_tokens=thinking_budget,
+        )
+    except (Exception, SystemExit):
+        log.warning(
+            "LLM match confirmation unavailable for %s / %s",
+            norm_id(source, doc.get("code")),
+            match.get("term"),
+        )
+        return {"related": False, "confidence": "low", "reason": "llm_unavailable"}
     try:
         raw = extract_json(text)
     except Exception:
@@ -209,7 +217,7 @@ def confirm_software_match(doc, source, match, cfg):
             match.get("term"),
         )
         return {"related": False, "confidence": "low", "reason": "invalid_llm_response"}
-    related = bool(raw.get("related"))
+    related = raw.get("related") is True
     confidence = str(raw.get("confidence") or "low").strip().lower()
     if confidence not in ("high", "medium", "low"):
         confidence = "low"
@@ -328,6 +336,55 @@ def ranked_matches(matches, top_n):
     return sorted(matches, key=lambda m: (-m["mark"], -SEVERITY_MARK.get(m["severity"], 0), m.get("published") or "", m["id"]))[:top_n]
 
 
+def select_confirmed_matches(pending, cfg, top_n, max_per_cluster):
+    selected = []
+    llm_rejected = 0
+    cluster_cap_skipped = 0
+    cluster_counts = defaultdict(int)
+    for candidate in sorted(
+        pending,
+        key=lambda candidate: (
+            -candidate["item"]["mark"],
+            -SEVERITY_MARK.get(candidate["item"]["severity"], 0),
+            candidate["item"].get("published") or "",
+            candidate["item"]["id"],
+        ),
+    ):
+        if len(selected) >= top_n:
+            break
+        item = candidate["item"]
+        cluster_id = item["cluster_id"]
+        if max_per_cluster and cluster_counts[cluster_id] >= max_per_cluster:
+            cluster_cap_skipped += 1
+            log.info(
+                "  Cluster cap skipped %s [%s] cluster=%s mark=%d title=%s",
+                item["id"], item["severity"], item["cluster_label"], item["mark"], item["title"],
+            )
+            continue
+        confirmation = confirm_software_match(candidate["doc"], item["source"], candidate["match"], cfg)
+        if not confirmation["related"]:
+            llm_rejected += 1
+            log.info(
+                "  LLM rejected %s term=%r confidence=%s reason=%s",
+                item["id"], item["matched_software"], confirmation["confidence"], confirmation["reason"],
+            )
+            continue
+        item["mark_reasons"].extend((
+            f"llm_related:{confirmation['confidence']}",
+            f"llm_reason:{confirmation['reason']}",
+        ))
+        cluster_counts[cluster_id] += 1
+        selected.append(item)
+        log.info(
+            "  LLM accepted %s term=%r cluster=%s mark=%d confidence=%s reason=%s",
+            item["id"], item["matched_software"], item["cluster_label"], item["mark"],
+            confirmation["confidence"], confirmation["reason"],
+        )
+    if len(selected) < top_n:
+        log.warning("  Shortlist shortfall: requested=%d accepted=%d", top_n, len(selected))
+    return selected, llm_rejected, cluster_cap_skipped
+
+
 def build_filtered_matches(cfg):
     terms = software_terms(cfg.get("software_cluster_csv", "cluster/software_cluster_summary_v3.csv"))
     allowed = {norm_severity(s) for s in cfg.get("severity_filter", []) if str(s).strip()}
@@ -343,10 +400,9 @@ def build_filtered_matches(cfg):
         top_n,
         max_per_cluster,
     )
-    matches = []
+    pending = []
     seen = set()
     keyword_hits = 0
-    llm_rejected = 0
     for source in ("cnvd", "cnnvd"):
         docs = docs_for(source, days)
         log.info("  Scanning %d %s document(s)", len(docs), source.upper())
@@ -362,6 +418,7 @@ def build_filtered_matches(cfg):
                 log.info("  Duplicate keyword hit skipped: %s (term=%r)", vid, match["term"])
                 continue
             detail = match_detail(source, doc, match)
+            seen.add(vid)
             keyword_hits += 1
             log.info(
                 "  Keyword hit %s [%s] term=%r (%s) cluster=%s (%s, size=%s) product=%r vendor=%r title=%s",
@@ -376,70 +433,35 @@ def build_filtered_matches(cfg):
                 detail["vendor"],
                 detail["title"],
             )
-            confirmation = confirm_software_match(doc, source, match, cfg)
-            if not confirmation["related"]:
-                llm_rejected += 1
-                log.info(
-                    "  LLM rejected %s term=%r confidence=%s reason=%s",
-                    detail["id"],
-                    detail["term"],
-                    confirmation["confidence"],
-                    confirmation["reason"],
-                )
-                continue
-            seen.add(vid)
             published = doc_date(doc)
             mark, reasons = mark_match(severity, match, published)
-            reasons.append(f"llm_related:{confirmation['confidence']}")
-            reasons.append(f"llm_reason:{confirmation['reason']}")
             log.info(
-                "  LLM accepted %s term=%r cluster=%s mark=%d confidence=%s reason=%s",
+                "  Marked %s term=%r cluster=%s mark=%d",
                 detail["id"],
                 detail["term"],
                 detail["cluster_label"],
                 mark,
-                confirmation["confidence"],
-                confirmation["reason"],
             )
-            matches.append({
-                "source": source,
-                "id": vid,
-                "severity": severity,
-                "mark": mark,
-                "mark_reasons": reasons,
-                "matched_software": match["term"],
-                "cluster_id": match["cluster_id"],
-                "cluster_label": match["cluster_label"],
-                "cluster_size": match["cluster_size"],
-                "published": published,
-                "title": doc.get("title") or "",
+            pending.append({
+                "doc": doc,
+                "match": match,
+                "item": {
+                    "source": source,
+                    "id": vid,
+                    "severity": severity,
+                    "mark": mark,
+                    "mark_reasons": reasons,
+                    "matched_software": match["term"],
+                    "cluster_id": match["cluster_id"],
+                    "cluster_label": match["cluster_label"],
+                    "cluster_size": match["cluster_size"],
+                    "published": published,
+                    "title": doc.get("title") or "",
+                },
             })
-    capped = cap_per_cluster(matches, max_per_cluster) if max_per_cluster else matches
-    if max_per_cluster and len(capped) < len(matches):
-        kept_ids = {item["id"] for item in capped}
-        for item in matches:
-            if item["id"] not in kept_ids:
-                log.info(
-                    "  Cluster cap dropped %s [%s] cluster=%s mark=%d title=%s",
-                    item["id"],
-                    item["severity"],
-                    item["cluster_label"],
-                    item["mark"],
-                    item["title"],
-                )
-    ranked = ranked_matches(capped, top_n)
-    if len(ranked) < len(capped):
-        kept_ids = {item["id"] for item in ranked}
-        for item in capped:
-            if item["id"] not in kept_ids:
-                log.info(
-                    "  Top-N dropped %s [%s] cluster=%s mark=%d title=%s",
-                    item["id"],
-                    item["severity"],
-                    item["cluster_label"],
-                    item["mark"],
-                    item["title"],
-                )
+    ranked, llm_rejected, cluster_cap_skipped = select_confirmed_matches(
+        pending, cfg, top_n, max_per_cluster,
+    )
     for index, item in enumerate(ranked, 1):
         log.info(
             "  Shortlist #%d %s [%s] mark=%d term=%r cluster=%s title=%s",
@@ -453,18 +475,21 @@ def build_filtered_matches(cfg):
         )
     payload = make_payload(ranked)
     log.info(
-        "Cluster match filter: keyword_hits=%d llm_accepted=%d llm_rejected=%d after_cluster_cap=%d shortlisted=%d",
+        "Cluster match filter: keyword_hits=%d marked=%d llm_accepted=%d llm_rejected=%d cluster_cap_skipped=%d shortlisted=%d",
         keyword_hits,
-        len(matches),
+        len(pending),
+        len(ranked),
         llm_rejected,
-        len(capped),
+        cluster_cap_skipped,
         len(ranked),
     )
     return payload, {
-        "marked": len(matches),
-        "after_cluster_cap": len(capped),
+        "marked": len(pending),
+        "after_cluster_cap": len(ranked),
         "keyword_hits": keyword_hits,
         "llm_rejected": llm_rejected,
+        "cluster_cap_skipped": cluster_cap_skipped,
+        "shortfall": max(0, top_n - len(ranked)),
     }
 
 
