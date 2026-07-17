@@ -6,11 +6,13 @@ import unittest
 import zipfile
 from datetime import datetime
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from pipeline.cli import build_arg_parser, load_or_build_cards
 from pipeline.evidence import inspect_existing_evidence, write_evidence
 from pipeline.output import apply_run_output_paths, report_date_prefix
 from pipeline.transfer import safe_extract_transfer_zip
+from plugin.zimbra.zimbra import soap_request
 
 
 class PipelineTests(unittest.TestCase):
@@ -66,3 +68,9 @@ class PipelineTests(unittest.TestCase):
                 archive.writestr("../escape.txt", "bad")
             with self.assertRaises(ValueError):
                 safe_extract_transfer_zip(bad_zip.getvalue(), output_root, "20260706_173000")
+
+    def test_soap_request_includes_zimbra_error_body(self):
+        error = HTTPError("https://zimbra.example/service/soap", 500, "Server Error", None, io.BytesIO(b"<Fault>message too large</Fault>"))
+        with patch("plugin.zimbra.zimbra.urllib.request.urlopen", side_effect=error):
+            with self.assertRaisesRegex(RuntimeError, r"500.*message too large"):
+                soap_request("zimbra.example", "<SendMsgRequest/>")

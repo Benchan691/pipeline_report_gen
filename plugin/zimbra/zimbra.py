@@ -1,6 +1,7 @@
 import html
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -47,8 +48,12 @@ def soap_request(host, body_xml, auth_token=""):
         data=envelope.encode("utf-8"),
         headers={"Content-Type": "application/soap+xml; charset=utf-8"},
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return ET.fromstring(response.read())
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return ET.fromstring(response.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"Zimbra SOAP request failed ({exc.code}): {detail or exc.reason}") from exc
 
 
 def zimbra_login(cfg):
