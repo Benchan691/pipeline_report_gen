@@ -87,7 +87,7 @@ Copy [`.env.example`](.env.example) to `.env`, then supply the credentials neede
 | --- | --- |
 | `FIRECRAWL_API_KEY` | Firecrawl searches, including SearXNG fallback. |
 | `ZIMBRA_HOST`, `ZIMBRA_EMAIL`, `ZIMBRA_PASSWORD` | Sending or receiving transfer emails and email notifications. |
-| `EMAIL_RECEIVER` | Sending the final eDrive share-link notification. |
+| `EMAIL_RECEIVER` | Sending the final eDrive share-link notification. Comma-separated for multiple recipients. |
 | `EDRIVE_USERNAME`, `EDRIVE_PASSWORD`, `EDRIVE_REMOTE_PATH`, `EDRIVE_BASE_URL` | Uploading to eDrive. |
 
 ## Services and dependencies

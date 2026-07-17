@@ -6,7 +6,7 @@ import sys
 import tempfile
 from datetime import datetime
 
-from pipeline.config import load_config, normalize_search_provider
+from pipeline.config import load_config, normalize_search_provider, parse_email_list
 from pipeline.constants import REPORT_LANGS
 from pipeline.dependencies import check_dependencies, load_workbook, setup_logging
 from pipeline.docx_report import build_docx
@@ -145,9 +145,9 @@ def build_link_body(body, link_url):
 
 
 def require_email_config(cfg):
-    receiver = str(cfg.get("email_receiver") or "").strip()
+    receivers = parse_email_list(cfg.get("email_receiver"))
     missing = []
-    if not receiver:
+    if not receivers:
         missing.append("EMAIL_RECEIVER in .env")
     try:
         require_zimbra_config(cfg)
@@ -160,7 +160,7 @@ def require_email_config(cfg):
 def send_report_email(cfg, share_url, subject=None):
     zimbra_send_email(
         cfg,
-        cfg["email_receiver"],
+        parse_email_list(cfg.get("email_receiver")),
         subject or str(cfg.get("email_title") or "漏洞報告文件").strip(),
         build_link_body(cfg.get("email_body"), share_url),
     )
@@ -176,7 +176,11 @@ def send_email_from_folder(cfg, folder_path):
     subject = build_email_subject(paths=paths, folder=folder, cfg=cfg)
     result = upload_output_folder_or_exit(folder, required=True)
     send_report_email(cfg, result.share_url, subject)
-    log.info("Email sent to %s with eDrive link (%s)", cfg["email_receiver"], folder)
+    log.info(
+        "Email sent to %s with eDrive link (%s)",
+        ", ".join(parse_email_list(cfg.get("email_receiver"))),
+        folder,
+    )
 
 
 def build_arg_parser():

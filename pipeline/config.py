@@ -19,9 +19,17 @@ def _env_or_cfg(cfg, env_key, cfg_key, default=""):
     return default
 
 
+def parse_email_list(value):
+    if isinstance(value, (list, tuple)):
+        parts = value
+    else:
+        parts = str(value or "").split(",")
+    return [str(part).strip() for part in parts if str(part).strip()]
+
+
 def _apply_env_overrides(cfg):
     cfg["firecrawl_api_key"] = _env_or_cfg(cfg, "FIRECRAWL_API_KEY", "firecrawl_api_key")
-    cfg["email_receiver"] = _env_or_cfg(cfg, "EMAIL_RECEIVER", "email_receiver")
+    cfg["email_receiver"] = parse_email_list(_env_or_cfg(cfg, "EMAIL_RECEIVER", "email_receiver"))
     cfg["zimbra_host"] = _env_or_cfg(cfg, "ZIMBRA_HOST", "zimbra_host")
     cfg["zimbra_email"] = _env_or_cfg(cfg, "ZIMBRA_EMAIL", "zimbra_email")
     cfg["zimbra_password"] = _env_or_cfg(cfg, "ZIMBRA_PASSWORD", "zimbra_password")

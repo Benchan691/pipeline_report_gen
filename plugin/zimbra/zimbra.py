@@ -129,11 +129,18 @@ def zimbra_send_email(cfg, to, subject, body, attachments=None, folder_id=None):
 
     attach_xml = "".join(f'<attach aid="{html.escape(aid)}"/>' for aid in attach_ids)
     subject_text = str(subject or "").strip()
+    if isinstance(to, (list, tuple, set)):
+        recipients = [str(addr).strip() for addr in to if str(addr).strip()]
+    else:
+        recipients = [part.strip() for part in str(to or "").split(",") if part.strip()]
+    if not recipients:
+        raise ValueError("Missing email recipient")
+    to_xml = "".join(f'<e t="t" a="{html.escape(addr)}"/>' for addr in recipients)
     soap_request(
         host,
         f"""<SendMsgRequest xmlns="urn:zimbraMail">
   <m>
-    <e t="t" a="{html.escape(str(to).strip())}"/>
+    {to_xml}
     <su>{html.escape(subject_text)}</su>
     <mp ct="text/plain"><content>{html.escape(str(body or ""))}</content></mp>
     {attach_xml}
