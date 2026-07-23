@@ -14,6 +14,7 @@ from pipeline.evidence import (
     add_english_translations,
     cached_card_is_usable,
     cards_missing_english,
+    check_ai_connectivity,
     extract_evidence_cards,
     inspect_existing_evidence,
     load_existing_evidence,
@@ -263,6 +264,7 @@ def main():
         return
 
     cfg = load_config()
+    check_ai_connectivity(cfg)
     if args.translate:
         log.info("Translating evidence JSON")
     elif args.build_reports:

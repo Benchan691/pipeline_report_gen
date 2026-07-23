@@ -58,6 +58,38 @@ def call_ai(base_url, model, system, user, max_tokens=1000, enable_thinking=Fals
     return content
 
 
+def check_ai_connectivity(cfg, timeout=10):
+    base_url = str(cfg.get("ai_base_url") or "").strip().rstrip("/")
+    model = str(cfg.get("ai_model") or "").strip()
+    if not base_url or not model:
+        sys.exit("AI connectivity check failed: ai_base_url and ai_model are required")
+
+    url = base_url + "/v1/models"
+    log.info("Checking AI connectivity (%s, model=%s)", base_url, model)
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            body = json.loads(res.read().decode("utf-8") or "{}")
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        sys.exit(f"AI connectivity check failed: cannot reach {url} ({exc})")
+
+    models = []
+    data = body.get("data") if isinstance(body, dict) else None
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict) and item.get("id"):
+                models.append(str(item["id"]))
+    if models and model not in models:
+        sys.exit(
+            f"AI connectivity check failed: model {model!r} not found at {base_url}. "
+            f"Available: {', '.join(models)}"
+        )
+    if models:
+        log.info("AI connected: %s (model=%s available)", base_url, model)
+    else:
+        log.info("AI connected: %s (model=%s)", base_url, model)
+
+
 def extract_json(text):
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end < start:

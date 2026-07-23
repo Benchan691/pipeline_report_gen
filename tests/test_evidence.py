@@ -6,6 +6,7 @@ from pipeline.evidence import (
     add_english_translations,
     build_ai_payload,
     cards_missing_english,
+    check_ai_connectivity,
     extract_json,
     evidence_prompt,
     merge_cards,
@@ -54,3 +55,25 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(translated[0]["what_happened"]["zh"], "中文描述")
         self.assertEqual(translated[0]["what_happened"]["en"], "English description")
         self.assertFalse(cards_missing_english(translated))
+
+    def test_ai_connectivity_check_passes_and_fails_clearly(self):
+        cfg = {"ai_base_url": "http://ai.example", "ai_model": "qwen-test"}
+        ok_body = json.dumps({"data": [{"id": "qwen-test"}]}).encode("utf-8")
+
+        class OkResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return ok_body
+
+        with patch("pipeline.evidence.urllib.request.urlopen", return_value=OkResponse()):
+            check_ai_connectivity(cfg)
+
+        with patch("pipeline.evidence.urllib.request.urlopen", side_effect=OSError("connection refused")):
+            with self.assertRaises(SystemExit) as raised:
+                check_ai_connectivity(cfg)
+        self.assertIn("AI connectivity check failed", str(raised.exception))
