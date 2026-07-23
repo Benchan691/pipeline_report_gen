@@ -57,7 +57,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual({card["cnvd_id"] for card in rewritten["vulnerability_cards"]}, {"CNVD-1", "CNVD-2"})
 
     def test_output_dates_and_transfer_extraction_are_safe(self):
-        cards = [{"source": "cnnvd", "doc": {"details": {"cnnvd": {"publishDate": "2026-06-30"}}}}, {"source": "cnnvd", "doc": {"details": {"cnnvd": {"publishDate": "2026-07-06"}}}}]
+        cards = [
+            {"source": "cnnvd", "doc": {"published_at": "2026-06-30T00:00:00Z", "details": {}}},
+            {"source": "cnnvd", "doc": {"details": {"publishDate": "2026-07-06"}}},
+        ]
         self.assertEqual(report_date_prefix(cards), "2026.06.30-07.06")
         with tempfile.TemporaryDirectory() as output_root:
             cfg = {"output_root": output_root, "output_docx": "report.docx", "output_weekly_excel": "weekly.xlsx", "output_date_prefix": True}

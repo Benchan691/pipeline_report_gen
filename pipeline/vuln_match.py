@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from pipeline.constants import DB
-from pipeline.mongo import candidates_from_payload, run_mongo
+from pipeline.mongo import candidates_from_payload, doc_published_text, provider_details, run_mongo
 from pipeline.utils import norm_cnvd, norm_cnnvd
 
 log = logging.getLogger(__name__)
@@ -70,27 +70,41 @@ def software_terms(path):
 
 
 def docs_for(source, days):
-    cutoff = ""
+    cutoff_ms = ""
     if days is not None:
-        cutoff = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() - int(days) * 86400, timezone.utc).isoformat()
+        cutoff_ms = str(int((datetime.now(timezone.utc).timestamp() - int(days) * 86400) * 1000))
     script = """
-const q = __CUTOFF__ ? {scraped_at: {$gte: __CUTOFF__}} : {};
+function serializeDocs(docs) {
+  return docs.map(doc => {
+    for (const key of Object.keys(doc)) {
+      if (doc[key] instanceof Date) doc[key] = doc[key].toISOString();
+    }
+    return doc;
+  });
+}
+const cutoffMs = __CUTOFF_MS__;
+const cutoff = cutoffMs === "" ? null : new Date(Number(cutoffMs));
+const cutoffIso = cutoff ? cutoff.toISOString() : null;
+const q = cutoff ? {$or: [{observed_at: {$gte: cutoff}}, {scraped_at: {$gte: cutoffIso}}]} : {};
 const docs = db.getSiblingDB("__DB__").getCollection("__COLL__").find(q, {
-  code: 1, title: 1, severity: 1, status: 1, cve_codes: 1, details: 1,
-  disclosure_date: 1, published_time: 1, scraped_at: 1
+  code: 1, title: 1, severity: 1, status: 1, cve_ids: 1, cve_codes: 1, details: 1, source: 1,
+  published_at: 1, updated_at: 1, observed_at: 1, disclosure_date: 1, published_time: 1, scraped_at: 1
 }).toArray();
-print(JSON.stringify(docs));
-""".replace("__DB__", DB).replace("__COLL__", source).replace("__CUTOFF__", json.dumps(cutoff))
+print(JSON.stringify(serializeDocs(docs)));
+""".replace("__DB__", DB).replace("__COLL__", source).replace("__CUTOFF_MS__", json.dumps(cutoff_ms))
     return run_mongo(script)
 
 
 def searchable_text(source, doc):
-    raw = (doc.get("details") or {}).get(source) or {}
+    raw = provider_details(doc, source)
     if source == "cnvd":
+        products = raw.get("affected_products") or []
+        if isinstance(products, str):
+            products = [products]
         parts = [
             doc.get("title"),
             raw.get("title"),
-            " ".join(raw.get("affected_products") or []),
+            " ".join(products),
         ]
     else:
         parts = [
@@ -98,6 +112,8 @@ def searchable_text(source, doc):
             raw.get("vulName"),
             raw.get("productName"),
             raw.get("vendorName"),
+            raw.get("affectedProduct"),
+            raw.get("affectedVendor"),
         ]
     return "\n".join(str(p) for p in parts if p).lower()
 
@@ -111,19 +127,22 @@ def first_match(terms, text):
 
 
 def doc_fields(source, doc):
-    raw = (doc.get("details") or {}).get(source) or {}
+    raw = provider_details(doc, source)
     if source == "cnvd":
+        products = raw.get("affected_products") or []
+        if isinstance(products, str):
+            products = [products]
         return {
-            "title": raw.get("title") or doc.get("title") or "",
-            "product": " ".join(raw.get("affected_products") or []),
+            "title": doc.get("title") or raw.get("title") or "",
+            "product": " ".join(str(p) for p in products if p),
             "vendor": "",
             "summary": str(raw.get("description") or "")[:500],
         }
     return {
-        "title": raw.get("vulName") or doc.get("title") or "",
-        "product": raw.get("productName") or "",
-        "vendor": raw.get("vendorName") or "",
-        "summary": str(raw.get("vulDesc") or raw.get("vulDetail") or "")[:500],
+        "title": doc.get("title") or raw.get("vulName") or "",
+        "product": raw.get("productName") or raw.get("affectedProduct") or "",
+        "vendor": raw.get("vendorName") or raw.get("affectedVendor") or "",
+        "summary": str(raw.get("vulDesc") or raw.get("vulDetail") or raw.get("productDesc") or "")[:500],
     }
 
 
@@ -226,11 +245,7 @@ def confirm_software_match(doc, source, match, cfg):
 
 
 def doc_date(doc):
-    raw = (doc.get("details") or {}).get("cnvd") or (doc.get("details") or {}).get("cnnvd") or {}
-    return (
-        raw.get("published_date") or raw.get("publishDate") or
-        doc.get("disclosure_date") or doc.get("published_time") or doc.get("scraped_at") or ""
-    )
+    return doc_published_text(doc)
 
 
 def freshness_points(value):

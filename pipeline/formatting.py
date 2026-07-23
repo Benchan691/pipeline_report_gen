@@ -1,4 +1,5 @@
 from pipeline.constants import DEFAULT_REPORT_LANG, LOCALES
+from pipeline.mongo import doc_published_text, provider_details
 from pipeline.utils import one_line, val
 
 
@@ -10,12 +11,11 @@ def localized(card, field, lang):
 
 
 def card_raw(card):
-    return card["doc"].get("details", {}).get(card.get("source", "cnvd"), {})
+    return provider_details(card.get("doc") or {}, card.get("source", "cnvd"))
 
 
 def card_date(card):
-    raw = card_raw(card)
-    return raw.get("published_date") or raw.get("publishDate") or card["doc"].get("disclosure_date") or card["doc"].get("published_time")
+    return doc_published_text(card.get("doc") or {}, card.get("source", "cnvd"))
 
 
 def format_severity(value, lang):
