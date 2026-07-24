@@ -1,6 +1,6 @@
 import unittest
 
-from pipeline.formatting import card_date, card_raw
+from pipeline.formatting import card_date, card_raw, word_rows
 from pipeline.mongo import candidate_from_cnnvd_doc, candidate_from_doc, doc_cve_ids, provider_details
 
 
@@ -70,6 +70,15 @@ class MongoSchemaV2Tests(unittest.TestCase):
         }
         self.assertEqual(card_date(card), "2026-07-10T00:00:00Z")
         self.assertEqual(card_raw(card)["description"], "x")
+
+    def test_report_publish_date_hides_timestamp(self):
+        card = {
+            "source": "cnvd",
+            "cnvd_id": "CNVD-2026-1000",
+            "title": {"zh": "测试", "en": "Test"},
+            "doc": {"published_at": "2026-07-20T16:00:00", "details": {}},
+        }
+        self.assertEqual(word_rows(card, "zh")[3][3], "2026-07-20")
 
 
 if __name__ == "__main__":

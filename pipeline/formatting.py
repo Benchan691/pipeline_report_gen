@@ -18,6 +18,12 @@ def card_date(card):
     return doc_published_text(card.get("doc") or {}, card.get("source", "cnvd"))
 
 
+def display_date(value):
+    """Return the calendar-date portion of an ISO-like timestamp for reports."""
+    text = str(value or "").strip()
+    return text[:10] if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-" else text
+
+
 def format_severity(value, lang):
     text = val(value)
     return LOCALES["zh"]["severity_map"].get(text, text) if lang == "zh" else text
@@ -63,7 +69,7 @@ def word_rows(card, lang):
         (labels["title"] + val(localized(card, "title", lang)),),
         (labels["cve"], card.get("cve_id") or "-", id_label, card["cnvd_id"]),
         (labels["system"], asset_text(card), labels["product"], one_line(products)),
-        (labels["threat"], format_severity(card.get("severity") or card_raw(card).get("severity"), lang), labels["date"], val(card_date(card))),
+        (labels["threat"], format_severity(card.get("severity") or card_raw(card).get("severity"), lang), labels["date"], val(display_date(card_date(card)))),
         (labels["hazard"] + hazard,),
         (labels["scope"] + val(products),),
         (labels["ref"] + ((card.get("references") or ["-"])[0]),),
