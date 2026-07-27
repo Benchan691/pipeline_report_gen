@@ -2,6 +2,7 @@ import logging
 import posixpath
 import time
 import zipfile
+from datetime import datetime
 from email.utils import parseaddr
 from io import BytesIO
 from pathlib import Path
@@ -55,6 +56,26 @@ def make_transfer_zip(folder_path):
         for path in files:
             zf.write(path, Path(folder.name) / path.relative_to(folder))
     return data.getvalue()
+
+
+def make_test_transfer_folder(output_root, when=None):
+    stamp = (when or datetime.now()).strftime("%Y%m%d_%H%M%S")
+    folder_name = f"test_transfer_{stamp}"
+    root = Path(output_root or "output").expanduser().resolve()
+    folder = root / folder_name
+    folder.mkdir(parents=True, exist_ok=False)
+    marker = folder / "TEST_TRANSFER.txt"
+    marker.write_text(
+        f"Synthetic pipeline transfer test bundle.\ncreated_at={stamp}\n",
+        encoding="utf-8",
+    )
+    log.info("Created test transfer folder %s", folder)
+    return folder
+
+
+def send_test_transfer(cfg):
+    folder = make_test_transfer_folder(cfg.get("output_root", "output"))
+    return send_transfer_from_folder(cfg, folder)
 
 
 def send_transfer_from_folder(cfg, folder_path):

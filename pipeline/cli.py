@@ -49,6 +49,7 @@ from pipeline.transfer import (
     receive_transfer,
     require_zimbra_config,
     safe_extract_transfer_zip,
+    send_test_transfer,
     send_transfer_from_folder,
     transfer_subject,
     zimbra_send_email,
@@ -201,8 +202,11 @@ def build_arg_parser():
     )
     parser.add_argument(
         "--send-transfer",
+        nargs="?",
+        const="",
+        default=None,
         metavar="FOLDER",
-        help="email an existing output folder zip to the configured Zimbra transfer mailbox",
+        help="email an output folder zip to Zimbra (omit FOLDER with --fake to send a synthetic test zip)",
     )
     parser.add_argument(
         "--receive-transfer",
@@ -212,7 +216,7 @@ def build_arg_parser():
     parser.add_argument(
         "--fake",
         action="store_true",
-        help="with --receive-transfer, process Zimbra ZIP, check eDrive connectivity, but skip upload and notify email",
+        help="with --receive-transfer: check eDrive but skip upload/notify; with --send-transfer: send a synthetic test ZIP",
     )
     return parser
 
@@ -223,7 +227,7 @@ def exclusive_action_flags(args):
         args.build_reports,
         args.cluster_match,
         bool(args.send_email),
-        bool(args.send_transfer),
+        args.send_transfer is not None,
         args.receive_transfer,
     ]
 
@@ -236,8 +240,8 @@ def main():
 
         run_tests()
         return
-    if args.fake and not args.receive_transfer:
-        sys.exit("--fake is only valid together with --receive-transfer")
+    if args.fake and not args.receive_transfer and args.send_transfer is None:
+        sys.exit("--fake is only valid together with --receive-transfer or --send-transfer")
     actions = exclusive_action_flags(args)
     if sum(bool(action) for action in actions) > 1:
         sys.exit(
@@ -251,11 +255,20 @@ def main():
         cfg = load_config(email_only=True)
         send_email_from_folder(cfg, args.send_email)
         return
-    if args.send_transfer:
-        log.info("Sending transfer email from folder %s", args.send_transfer)
+    if args.send_transfer is not None:
         cfg = load_config(email_only=True)
         try:
-            send_transfer_from_folder(cfg, resolve_output_folder(cfg, args.send_transfer))
+            if args.fake:
+                if args.send_transfer:
+                    sys.exit("--send-transfer --fake does not take a folder argument")
+                log.info("Sending synthetic test transfer zip")
+                folder = send_test_transfer(cfg)
+                log.info("Test transfer sent for %s", folder)
+            else:
+                if not args.send_transfer:
+                    sys.exit("--send-transfer requires a folder (or use --send-transfer --fake)")
+                log.info("Sending transfer email from folder %s", args.send_transfer)
+                send_transfer_from_folder(cfg, resolve_output_folder(cfg, args.send_transfer))
         except ValueError as exc:
             sys.exit(str(exc))
         return

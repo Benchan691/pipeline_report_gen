@@ -13,7 +13,7 @@ from pipeline.amqp import parse_transfer_request, transfer_request_payload
 from pipeline.edrive_upload import check_edrive_connectivity
 from pipeline.evidence import inspect_existing_evidence, write_evidence
 from pipeline.output import apply_run_output_paths, report_date_prefix
-from pipeline.transfer import safe_extract_transfer_zip
+from pipeline.transfer import make_test_transfer_folder, make_transfer_zip, safe_extract_transfer_zip
 from plugin.zimbra.zimbra import soap_request
 
 
@@ -97,7 +97,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result, cfg)
         login.assert_called_once_with("u", "p", "https://edrive.example")
 
-    def test_fake_flag_requires_receive_transfer(self):
+    def test_fake_flag_requires_transfer_action(self):
         parser = build_arg_parser()
         args = parser.parse_args(["--fake"])
         self.assertTrue(args.fake)
@@ -106,7 +106,7 @@ class PipelineTests(unittest.TestCase):
 
             with self.assertRaises(SystemExit) as ctx:
                 main()
-            self.assertIn("--fake is only valid together with --receive-transfer", str(ctx.exception))
+            self.assertIn("--fake is only valid together with --receive-transfer or --send-transfer", str(ctx.exception))
 
         with patch("pipeline.cli.setup_logging"), patch("pipeline.cli.load_config"), patch("pipeline.cli.receive_transfer") as receive:
             with patch("sys.argv", ["main.py", "--receive-transfer", "--fake"]):
@@ -115,3 +115,39 @@ class PipelineTests(unittest.TestCase):
                 main()
         receive.assert_called_once()
         self.assertTrue(receive.call_args.kwargs.get("fake"))
+
+    def test_send_transfer_fake_builds_and_sends_test_zip(self):
+        parser = build_arg_parser()
+        args = parser.parse_args(["--send-transfer", "--fake"])
+        self.assertEqual(args.send_transfer, "")
+        self.assertTrue(args.fake)
+
+        with tempfile.TemporaryDirectory() as output_root:
+            folder = make_test_transfer_folder(output_root, when=datetime(2026, 7, 27, 12, 0, 0))
+            self.assertEqual(folder.name, "test_transfer_20260727_120000")
+            self.assertTrue((folder / "TEST_TRANSFER.txt").is_file())
+            zip_bytes = make_transfer_zip(folder)
+            self.assertGreater(len(zip_bytes), 0)
+
+        with patch("pipeline.cli.setup_logging"), patch("pipeline.cli.load_config", return_value={"output_root": "output"}), patch(
+            "pipeline.cli.send_test_transfer", return_value="test_transfer_20260727_120000"
+        ) as send_test:
+            with patch("sys.argv", ["main.py", "--send-transfer", "--fake"]):
+                from pipeline.cli import main
+
+                main()
+        send_test.assert_called_once()
+
+        with patch("pipeline.cli.setup_logging"), patch("pipeline.cli.load_config", return_value={}), patch("sys.argv", ["main.py", "--send-transfer", "20260706_173000", "--fake"]):
+            from pipeline.cli import main
+
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+            self.assertIn("does not take a folder", str(ctx.exception))
+
+        with patch("pipeline.cli.setup_logging"), patch("pipeline.cli.load_config", return_value={}), patch("sys.argv", ["main.py", "--send-transfer"]):
+            from pipeline.cli import main
+
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+            self.assertIn("requires a folder", str(ctx.exception))
