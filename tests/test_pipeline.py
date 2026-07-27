@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -13,7 +14,12 @@ from pipeline.amqp import parse_transfer_request, transfer_request_payload
 from pipeline.edrive_upload import check_edrive_connectivity
 from pipeline.evidence import inspect_existing_evidence, write_evidence
 from pipeline.output import apply_run_output_paths, report_date_prefix
-from pipeline.transfer import make_test_transfer_folder, make_transfer_zip, safe_extract_transfer_zip
+from pipeline.transfer import (
+    delete_received_output_folder,
+    make_test_transfer_folder,
+    make_transfer_zip,
+    safe_extract_transfer_zip,
+)
 from plugin.zimbra.zimbra import soap_request
 
 
@@ -73,6 +79,18 @@ class PipelineTests(unittest.TestCase):
                 archive.writestr("../escape.txt", "bad")
             with self.assertRaises(ValueError):
                 safe_extract_transfer_zip(bad_zip.getvalue(), output_root, "20260706_173000")
+
+    def test_delete_received_output_folder_removes_local_copy(self):
+        with tempfile.TemporaryDirectory() as output_root:
+            folder = Path(output_root) / "20260706_173000"
+            folder.mkdir()
+            (folder / "report.docx").write_text("ok", encoding="utf-8")
+            delete_received_output_folder(output_root, "20260706_173000")
+            self.assertFalse(folder.exists())
+            with self.assertRaises(ValueError):
+                delete_received_output_folder(output_root, "../escape")
+            with self.assertRaises(ValueError):
+                delete_received_output_folder(output_root, ".")
 
     def test_soap_request_includes_zimbra_error_body(self):
         error = HTTPError("https://zimbra.example/service/soap", 500, "Server Error", None, io.BytesIO(b"<Fault>message too large</Fault>"))

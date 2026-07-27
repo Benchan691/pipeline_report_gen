@@ -51,7 +51,7 @@ Run these from the repository root.
 | `.venv/bin/python main.py --build-reports` | Build reports from existing evidence JSON; does not search or send transfer email. |
 | `.venv/bin/python main.py --send-transfer 20260706_173000` | Send an existing output folder as a ZIP through Zimbra and publish a CloudAMQP wake-up. |
 | `.venv/bin/python main.py --send-transfer --fake` | Create a tiny synthetic test folder, ZIP it, send through Zimbra, and publish a CloudAMQP wake-up. |
-| `.venv/bin/python main.py --receive-transfer` | Listen on CloudAMQP, then process each transfer ZIP from Zimbra (eDrive upload + share-link email). |
+| `.venv/bin/python main.py --receive-transfer` | Listen on CloudAMQP, then process each transfer ZIP from Zimbra (eDrive upload + share-link email), and delete the local output folder after upload. |
 | `.venv/bin/python main.py --receive-transfer --fake` | Same as `--receive-transfer`, but only checks eDrive connectivity (no upload) and skips notify email; still extracts ZIP and deletes the transfer mail. |
 | `.venv/bin/python main.py --send-email 20260706_173000` | Upload an existing output folder to eDrive and email its share link. |
 | `.venv/bin/python main.py --self-test` | Run the local test suite without MongoDB, search, AI, eDrive, or Zimbra. |

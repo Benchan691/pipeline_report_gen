@@ -1,5 +1,6 @@
 import logging
 import posixpath
+import shutil
 import time
 import zipfile
 from datetime import datetime
@@ -209,6 +210,23 @@ def _process_transfer_message(cfg, folder, deliver_folder, subject=None):
     return folder
 
 
+def delete_received_output_folder(output_root, folder_name):
+    folder = str(folder_name or "").strip()
+    if not folder or "/" in folder or "\\" in folder or folder in (".", ".."):
+        raise ValueError(f"Unsafe output folder name: {folder_name}")
+    root = Path(output_root or "output").expanduser().resolve()
+    target = (root / folder).resolve()
+    if target == root or root not in target.parents:
+        raise ValueError(f"Refusing to delete path outside output root: {target}")
+    if not target.exists():
+        log.info("Received output folder already absent: %s", target)
+        return
+    if not target.is_dir():
+        raise ValueError(f"Output path is not a folder: {target}")
+    shutil.rmtree(target)
+    log.info("Deleted local output folder after eDrive upload: %s", target)
+
+
 def receive_transfer(cfg, deliver_folder, fake=False):
     require_zimbra_config(cfg)
 
@@ -218,6 +236,7 @@ def receive_transfer(cfg, deliver_folder, fake=False):
             log.info("Fake receive: skipped eDrive upload and notify email for %s", folder_name)
             return
         deliver_folder(folder_name)
+        delete_received_output_folder(cfg.get("output_root", "output"), folder_name)
 
     def on_message(folder, subject):
         _process_transfer_message(cfg, folder, deliver, subject=subject)
