@@ -9,6 +9,8 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from pipeline.cli import build_arg_parser, load_or_build_cards
+from pipeline.amqp import parse_transfer_request, transfer_request_payload
+from pipeline.edrive_upload import check_edrive_connectivity
 from pipeline.evidence import inspect_existing_evidence, write_evidence
 from pipeline.output import apply_run_output_paths, report_date_prefix
 from pipeline.transfer import safe_extract_transfer_zip
@@ -77,3 +79,39 @@ class PipelineTests(unittest.TestCase):
         with patch("plugin.zimbra.zimbra.urllib.request.urlopen", side_effect=error):
             with self.assertRaisesRegex(RuntimeError, r"500.*message too large"):
                 soap_request("zimbra.example", "<SendMsgRequest/>")
+
+    def test_transfer_request_payload_and_parser(self):
+        payload = transfer_request_payload("20260706_173000")
+        self.assertEqual(payload, {"folder": "20260706_173000", "subject": "PIPELINE_UPLOAD:20260706_173000"})
+        folder, subject = parse_transfer_request(json.dumps(payload).encode("utf-8"))
+        self.assertEqual(folder, "20260706_173000")
+        self.assertEqual(subject, "PIPELINE_UPLOAD:20260706_173000")
+
+    def test_check_edrive_connectivity_logs_in_without_upload(self):
+        cfg = type("Cfg", (), {"username": "u", "password": "p", "remote_path": "Ben Chan/weekly-reports", "base_url": "https://edrive.example"})()
+        with patch("pipeline.edrive_upload.load_edrive_config", return_value=cfg), patch("edrive.login") as login, patch(
+            "edrive.list_owned_doc_libs", return_value=[{"name": "Ben Chan"}]
+        ):
+            login.return_value.__enter__.return_value = object()
+            result = check_edrive_connectivity(required=True)
+        self.assertEqual(result, cfg)
+        login.assert_called_once_with("u", "p", "https://edrive.example")
+
+    def test_fake_flag_requires_receive_transfer(self):
+        parser = build_arg_parser()
+        args = parser.parse_args(["--fake"])
+        self.assertTrue(args.fake)
+        with patch("pipeline.cli.setup_logging"), patch("sys.argv", ["main.py", "--fake"]):
+            from pipeline.cli import main
+
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+            self.assertIn("--fake is only valid together with --receive-transfer", str(ctx.exception))
+
+        with patch("pipeline.cli.setup_logging"), patch("pipeline.cli.load_config"), patch("pipeline.cli.receive_transfer") as receive:
+            with patch("sys.argv", ["main.py", "--receive-transfer", "--fake"]):
+                from pipeline.cli import main
+
+                main()
+        receive.assert_called_once()
+        self.assertTrue(receive.call_args.kwargs.get("fake"))

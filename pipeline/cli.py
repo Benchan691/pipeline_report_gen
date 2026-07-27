@@ -207,7 +207,12 @@ def build_arg_parser():
     parser.add_argument(
         "--receive-transfer",
         action="store_true",
-        help="download the latest matching Zimbra transfer, upload to eDrive, email the share link, then delete it",
+        help="listen on CloudAMQP for transfer wake-ups, then download the Zimbra ZIP, upload to eDrive, email the share link, and delete it",
+    )
+    parser.add_argument(
+        "--fake",
+        action="store_true",
+        help="with --receive-transfer, process Zimbra ZIP, check eDrive connectivity, but skip upload and notify email",
     )
     return parser
 
@@ -231,6 +236,8 @@ def main():
 
         run_tests()
         return
+    if args.fake and not args.receive_transfer:
+        sys.exit("--fake is only valid together with --receive-transfer")
     actions = exclusive_action_flags(args)
     if sum(bool(action) for action in actions) > 1:
         sys.exit(
@@ -253,14 +260,19 @@ def main():
             sys.exit(str(exc))
         return
     if args.receive_transfer:
-        log.info("Receiving transfer email")
+        if args.fake:
+            log.info("Listening for transfer wake-ups (fake mode: skip eDrive and notify email)")
+        else:
+            log.info("Listening for transfer wake-ups")
         cfg = load_config(email_only=True)
         try:
-            folder = receive_transfer(cfg, lambda folder_name: send_email_from_folder(cfg, folder_name))
+            receive_transfer(
+                cfg,
+                lambda folder_name: send_email_from_folder(cfg, folder_name),
+                fake=args.fake,
+            )
         except ValueError as exc:
             sys.exit(str(exc))
-        if folder:
-            log.info("Received transfer and sent eDrive notification for %s", folder)
         return
 
     cfg = load_config()

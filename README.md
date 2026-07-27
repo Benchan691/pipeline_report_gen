@@ -35,9 +35,9 @@ The full pipeline selects vulnerabilities, searches for evidence, builds both DO
 4. Extract source-grounded evidence in Chinese with the configured AI server.
 5. Translate the merged report text to English.
 6. Write the evidence cache and dated DOCX/XLSX output files.
-7. Send the run folder through the Zimbra transfer bridge.
+7. Send the run folder through the Zimbra transfer bridge and publish a CloudAMQP wake-up.
 
-The eDrive receiver downloads the transfer ZIP, uploads it to eDrive, and sends the share link to the report recipient.
+The eDrive receiver runs `--receive-transfer`, listens on CloudAMQP, downloads the transfer ZIP from Zimbra, uploads it to eDrive, and sends the share link to the report recipient.
 
 ## Commands
 
@@ -49,8 +49,9 @@ Run these from the repository root.
 | `.venv/bin/python main.py --cluster-match` | Match vulnerabilities to software clusters only; does not search or write reports. |
 | `.venv/bin/python main.py --translate` | Add or refresh English translations in the existing evidence JSON. |
 | `.venv/bin/python main.py --build-reports` | Build reports from existing evidence JSON; does not search or send transfer email. |
-| `.venv/bin/python main.py --send-transfer 20260706_173000` | Send an existing output folder as a ZIP through Zimbra. |
-| `.venv/bin/python main.py --receive-transfer` | Receive the latest transfer ZIP, upload it to eDrive, and email the share link. |
+| `.venv/bin/python main.py --send-transfer 20260706_173000` | Send an existing output folder as a ZIP through Zimbra and publish a CloudAMQP wake-up. |
+| `.venv/bin/python main.py --receive-transfer` | Listen on CloudAMQP, then process each transfer ZIP from Zimbra (eDrive upload + share-link email). |
+| `.venv/bin/python main.py --receive-transfer --fake` | Same as `--receive-transfer`, but only checks eDrive connectivity (no upload) and skips notify email; still extracts ZIP and deletes the transfer mail. |
 | `.venv/bin/python main.py --send-email 20260706_173000` | Upload an existing output folder to eDrive and email its share link. |
 | `.venv/bin/python main.py --self-test` | Run the local test suite without MongoDB, search, AI, eDrive, or Zimbra. |
 | `.venv/bin/python -m unittest discover -s tests -v` | Run the test suite directly. |
@@ -87,6 +88,7 @@ Copy [`.env.example`](.env.example) to `.env`, then supply the credentials neede
 | --- | --- |
 | `FIRECRAWL_API_KEY` | Firecrawl searches, including SearXNG fallback. |
 | `ZIMBRA_HOST`, `ZIMBRA_EMAIL`, `ZIMBRA_PASSWORD` | Sending or receiving transfer emails and email notifications. |
+| `CLOUDAMQP_URL`, `CLOUDAMQP_QUEUE` | Transfer wake-up listener (`--receive-transfer`) and publish after `--send-transfer` / full pipeline. |
 | `EMAIL_RECEIVER` | Sending the final eDrive share-link notification. Comma-separated for multiple recipients. |
 | `EDRIVE_USERNAME`, `EDRIVE_PASSWORD`, `EDRIVE_REMOTE_PATH`, `EDRIVE_BASE_URL` | Uploading to eDrive. |
 

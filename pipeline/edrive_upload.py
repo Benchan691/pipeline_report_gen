@@ -41,6 +41,44 @@ def load_edrive_config(project_root=None):
     )
 
 
+def check_edrive_connectivity(project_root=None, *, required=False):
+    cfg = load_edrive_config(project_root)
+    if cfg is None:
+        if required:
+            raise EdriveConfigError(
+                "eDrive connectivity check is required but not configured. "
+                "Copy .env.example to .env and set EDRIVE_USERNAME, EDRIVE_PASSWORD, "
+                "EDRIVE_REMOTE_PATH, and EDRIVE_BASE_URL."
+            )
+        log.info("eDrive connectivity check skipped (not configured)")
+        return None
+
+    from edrive import list_owned_doc_libs, login
+
+    log.info("Checking eDrive connectivity at %s", cfg.base_url)
+    with login(cfg.username, cfg.password, cfg.base_url) as session:
+        libs = list_owned_doc_libs(session)
+    log.info(
+        "eDrive connectivity OK (account=%s, remote_path=%s, doc_libs=%d)",
+        cfg.username,
+        cfg.remote_path,
+        len(libs),
+    )
+    return cfg
+
+
+def check_edrive_connectivity_or_exit(project_root=None, *, required=False):
+    try:
+        return check_edrive_connectivity(project_root, required=required)
+    except EdriveConfigError as exc:
+        sys.exit(str(exc))
+    except Exception as exc:
+        log.error("eDrive connectivity check failed: %s", exc)
+        if required:
+            sys.exit(f"eDrive connectivity check failed: {exc}")
+        raise
+
+
 def upload_output_folder(output_dir, project_root=None, *, required=False):
     cfg = load_edrive_config(project_root)
     if cfg is None:
