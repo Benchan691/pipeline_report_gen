@@ -72,6 +72,8 @@ For `--send-transfer` and `--send-email`, pass either a run-folder name under `o
 | `use_filtered_vuln_ids` | Enable software-cluster matching before search. |
 | `software_cluster_csv` | Sorted software-cluster summary used for matching. |
 | `search_provider` | `firecrawl` or `searxng`. |
+| `firecrawl_retries` | Max Firecrawl attempts on failure (default `5`). |
+| `firecrawl_retry_wait` | Seconds to wait between Firecrawl retries (default `30`). |
 | `ai_base_url`, `ai_model` | Local OpenAI-compatible AI server used for extraction and translation. |
 | `use_existing_evidence_json` | Reuse cached evidence and fetch only missing cards. |
 | `output_root` | Parent directory for timestamped report folders. |

@@ -2,6 +2,7 @@ import http.client
 import json
 import logging
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -86,19 +87,50 @@ def firecrawl_search(cfg, query, timeout=30):
     api_key = str(cfg.get("firecrawl_api_key") or "").strip()
     if not api_key:
         sys.exit("Missing FIRECRAWL_API_KEY in .env")
-    req = urllib.request.Request(
-        cfg["firecrawl_base_url"].rstrip("/") + "/v2/search",
-        data=json.dumps({"query": query, "limit": int(cfg["firecrawl_max_results"]), "sources": ["web"]}).encode("utf-8"),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as res:
-            body = json.loads(res.read().decode("utf-8"))
-    except (urllib.error.URLError, http.client.HTTPException) as exc:
-        sys.exit(f"Firecrawl request failed for {query!r}: {exc}")
-    if not body.get("success", True):
-        sys.exit(f"Firecrawl request failed for {query!r}: {body.get('error') or body}")
-    return parse_firecrawl_results(body)
+    retries = max(1, int(cfg.get("firecrawl_retries", 5)))
+    wait_seconds = max(0, float(cfg.get("firecrawl_retry_wait", 30)))
+    payload = json.dumps({"query": query, "limit": int(cfg["firecrawl_max_results"]), "sources": ["web"]}).encode("utf-8")
+    url = cfg["firecrawl_base_url"].rstrip("/") + "/v2/search"
+    last_error = None
+    for attempt in range(1, retries + 1):
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as res:
+                body = json.loads(res.read().decode("utf-8"))
+        except (urllib.error.URLError, http.client.HTTPException, TimeoutError, json.JSONDecodeError) as exc:
+            last_error = exc
+            if attempt < retries:
+                log.warning(
+                    "Firecrawl request failed for %r (%s); retrying in %.0fs (%d/%d)",
+                    query,
+                    exc,
+                    wait_seconds,
+                    attempt,
+                    retries,
+                )
+                time.sleep(wait_seconds)
+                continue
+            sys.exit(f"Firecrawl request failed for {query!r} after {retries} attempt(s): {exc}")
+        if not body.get("success", True):
+            last_error = body.get("error") or body
+            if attempt < retries:
+                log.warning(
+                    "Firecrawl request failed for %r (%s); retrying in %.0fs (%d/%d)",
+                    query,
+                    last_error,
+                    wait_seconds,
+                    attempt,
+                    retries,
+                )
+                time.sleep(wait_seconds)
+                continue
+            sys.exit(f"Firecrawl request failed for {query!r} after {retries} attempt(s): {last_error}")
+        return parse_firecrawl_results(body)
+    sys.exit(f"Firecrawl request failed for {query!r} after {retries} attempt(s): {last_error}")
 
 
 def web_search(cfg, query):

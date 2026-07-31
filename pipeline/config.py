@@ -66,6 +66,8 @@ def load_config(email_only=False):
     cfg.setdefault("searxng_max_results", 5)
     cfg.setdefault("firecrawl_base_url", "https://api.firecrawl.dev")
     cfg.setdefault("firecrawl_max_results", cfg["searxng_max_results"])
+    cfg.setdefault("firecrawl_retries", 5)
+    cfg.setdefault("firecrawl_retry_wait", 30)
     cfg.setdefault("search_fallback_firecrawl", True)
     cfg.setdefault("weekly_excel_template", "templates/weekly_disclosure.xlsx")
     cfg.setdefault("output_weekly_excel", "weekly_disclosure.xlsx")
