@@ -312,3 +312,4 @@ C0196,爱思助手,2,v2_preserved,false,爱思助手7.0 | 爱思助手8.0
 C0197,用于 sql server 的浏览器,2,v2_preserved,false,用于 SQL Server 2019 的浏览器 | 用于 SQL Server 2022 的浏览器
 C0337,花儿五笔 Input Method,2,human_review_cn_exact_family,false,花儿五笔 | 花儿五笔 芬芳
 C0198,证书助手,2,v2_preserved,false,证书助手 | 证书助手 版本
+C0342,Pip Package Manager,7,manual_pip_tools,false,pip | pipx | Poetry | Pipenv | uv | twine | pip-tools

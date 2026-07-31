@@ -16,6 +16,7 @@ COMMON_WORDS = {
     "update", "setup", "installer", "install", "uninstall", "driver", "package",
     "x64", "x86", "bit", "edition", "version", "release", "runtime", "client",
 }
+SHORT_ALLOWED_TERMS = {"pip", "uv"}
 SEVERITY = {
     "critical": "Critical", "超危": "Critical", "严重": "Critical",
     "high": "High", "高": "High", "高危": "High", "high-risk": "High",
@@ -55,10 +56,13 @@ def software_terms(path):
             values.extend(("sample", v) for v in row.get("sample_software", "").split("|"))
             for kind, value in values:
                 term = clean_term(value)
-                if len(term) < 3 or term.lower() in COMMON_WORDS:
+                if term.lower() in COMMON_WORDS:
                     continue
-                if len(term.split()) == 1 and len(term) < 4:
-                    continue
+                if term.lower() not in SHORT_ALLOWED_TERMS:
+                    if len(term) < 3:
+                        continue
+                    if len(term.split()) == 1 and len(term) < 4:
+                        continue
                 by_term.setdefault(term.lower(), {
                     "term": term,
                     "term_kind": kind,
