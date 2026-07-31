@@ -89,7 +89,7 @@ Copy [`.env.example`](.env.example) to `.env`, then supply the credentials neede
 
 | Variable | Required for |
 | --- | --- |
-| `FIRECRAWL_API_KEY` | Firecrawl searches, including SearXNG fallback. |
+| `FIRECRAWL_API_KEY` | Firecrawl searches, including SearXNG fallback. Comma-separated keys rotate on failure. |
 | `ZIMBRA_HOST`, `ZIMBRA_EMAIL`, `ZIMBRA_PASSWORD` | Sending or receiving transfer emails and email notifications. |
 | `CLOUDAMQP_URL`, `CLOUDAMQP_QUEUE` | Transfer wake-up listener (`--receive-transfer`) and publish after `--send-transfer` / full pipeline. |
 | `EMAIL_RECEIVER` | Sending the final eDrive share-link notification. Comma-separated for multiple recipients. |

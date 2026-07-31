@@ -10,6 +10,22 @@ import urllib.request
 from pipeline.utils import content_hash
 
 log = logging.getLogger(__name__)
+_firecrawl_key_index = 0
+
+
+def _firecrawl_api_keys(cfg):
+    keys = cfg.get("firecrawl_api_keys")
+    if isinstance(keys, (list, tuple)) and keys:
+        return [str(key).strip() for key in keys if str(key).strip()]
+    single = str(cfg.get("firecrawl_api_key") or "").strip()
+    return [single] if single else []
+
+
+def _mask_firecrawl_key(api_key):
+    key = str(api_key or "")
+    if len(key) <= 8:
+        return "***"
+    return f"{key[:4]}...{key[-4:]}"
 
 
 def queries_for_candidate(candidate):
@@ -84,8 +100,9 @@ def parse_firecrawl_results(body):
 
 
 def firecrawl_search(cfg, query, timeout=30):
-    api_key = str(cfg.get("firecrawl_api_key") or "").strip()
-    if not api_key:
+    global _firecrawl_key_index
+    api_keys = _firecrawl_api_keys(cfg)
+    if not api_keys:
         sys.exit("Missing FIRECRAWL_API_KEY in .env")
     retries = max(1, int(cfg.get("firecrawl_retries", 5)))
     wait_seconds = max(0, float(cfg.get("firecrawl_retry_wait", 30)))
@@ -93,6 +110,8 @@ def firecrawl_search(cfg, query, timeout=30):
     url = cfg["firecrawl_base_url"].rstrip("/") + "/v2/search"
     last_error = None
     for attempt in range(1, retries + 1):
+        key_index = _firecrawl_key_index % len(api_keys)
+        api_key = api_keys[key_index]
         req = urllib.request.Request(
             url,
             data=payload,
@@ -104,31 +123,42 @@ def firecrawl_search(cfg, query, timeout=30):
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, json.JSONDecodeError) as exc:
             last_error = exc
             if attempt < retries:
+                next_index = (key_index + 1) % len(api_keys)
                 log.warning(
-                    "Firecrawl request failed for %r (%s); retrying in %.0fs (%d/%d)",
+                    "Firecrawl request failed for %r with key %s (%s); waiting %.0fs then rotating to key %d/%d (%d/%d)",
                     query,
+                    _mask_firecrawl_key(api_key),
                     exc,
                     wait_seconds,
+                    next_index + 1,
+                    len(api_keys),
                     attempt,
                     retries,
                 )
                 time.sleep(wait_seconds)
+                _firecrawl_key_index = next_index
                 continue
             sys.exit(f"Firecrawl request failed for {query!r} after {retries} attempt(s): {exc}")
         if not body.get("success", True):
             last_error = body.get("error") or body
             if attempt < retries:
+                next_index = (key_index + 1) % len(api_keys)
                 log.warning(
-                    "Firecrawl request failed for %r (%s); retrying in %.0fs (%d/%d)",
+                    "Firecrawl request failed for %r with key %s (%s); waiting %.0fs then rotating to key %d/%d (%d/%d)",
                     query,
+                    _mask_firecrawl_key(api_key),
                     last_error,
                     wait_seconds,
+                    next_index + 1,
+                    len(api_keys),
                     attempt,
                     retries,
                 )
                 time.sleep(wait_seconds)
+                _firecrawl_key_index = next_index
                 continue
             sys.exit(f"Firecrawl request failed for {query!r} after {retries} attempt(s): {last_error}")
+        _firecrawl_key_index = key_index
         return parse_firecrawl_results(body)
     sys.exit(f"Firecrawl request failed for {query!r} after {retries} attempt(s): {last_error}")
 
@@ -137,7 +167,7 @@ def web_search(cfg, query):
     if cfg["search_provider"] == "firecrawl":
         return firecrawl_search(cfg, query)
     hits = searxng_search(cfg["searxng_base_url"], query, cfg["searxng_max_results"])
-    if hits or not cfg.get("search_fallback_firecrawl", True) or not cfg.get("firecrawl_api_key"):
+    if hits or not cfg.get("search_fallback_firecrawl", True) or not _firecrawl_api_keys(cfg):
         return hits
     log.info("  SearXNG empty for %r; falling back to Firecrawl", query)
     return firecrawl_search(cfg, query)
