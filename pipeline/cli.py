@@ -6,6 +6,8 @@ import sys
 import tempfile
 from datetime import datetime
 
+from zimbra_client import ZimbraClient
+
 from pipeline.config import load_config, normalize_search_provider, parse_email_list
 from pipeline.constants import REPORT_LANGS
 from pipeline.dependencies import check_dependencies, load_workbook, setup_logging
@@ -43,18 +45,11 @@ from pipeline.output import (
 from pipeline import search as search_mod
 from pipeline.search import parse_firecrawl_results, queries_for_candidate, web_search
 from pipeline.transfer import (
-    make_transfer_zip,
-    matches_transfer_message,
-    parse_transfer_subject,
     receive_transfer,
     require_zimbra_config,
-    safe_extract_transfer_zip,
     send_test_transfer,
     send_transfer_from_folder,
-    transfer_subject,
-    zimbra_send_email,
 )
-from plugin.zimbra import zimbra as zimbra_mod
 from pipeline.utils import norm_cnvd
 
 log = logging.getLogger(__name__)
@@ -160,12 +155,12 @@ def require_email_config(cfg):
 
 
 def send_report_email(cfg, share_url, subject=None):
-    zimbra_send_email(
-        cfg,
-        parse_email_list(cfg.get("email_receiver")),
-        subject or str(cfg.get("email_title") or "漏洞報告文件").strip(),
-        build_link_body(cfg.get("email_body"), share_url),
-    )
+    with ZimbraClient(cfg) as client:
+        client.send_message(
+            to=parse_email_list(cfg.get("email_receiver")),
+            subject=subject or str(cfg.get("email_title") or "漏洞報告文件").strip(),
+            text=build_link_body(cfg.get("email_body"), share_url),
+        )
 
 
 def send_email_from_folder(cfg, folder_path):

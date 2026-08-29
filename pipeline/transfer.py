@@ -8,25 +8,32 @@ from email.utils import parseaddr
 from io import BytesIO
 from pathlib import Path
 
+from zimbra_client import Attachment, ZimbraClient
+
 from pipeline.amqp import consume_transfer_requests, publish_transfer_request
 from pipeline.edrive_upload import check_edrive_connectivity_or_exit
-from plugin.zimbra import (
-    download_attachment,
-    require_zimbra_config,
-    zimbra_delete_message,
-    zimbra_email,
-    zimbra_get_message,
-    zimbra_host,
-    zimbra_login,
-    zimbra_search,
-    zimbra_send_email,
-)
 
 log = logging.getLogger(__name__)
 
 SUBJECT_PREFIX = "PIPELINE_UPLOAD:"
 ZIMBRA_LOOKUP_ATTEMPTS = 8
 ZIMBRA_LOOKUP_DELAY_SECONDS = 0.5
+
+
+def zimbra_email(cfg):
+    return str(cfg.get("zimbra_email") or cfg.get("email") or "").strip()
+
+
+def require_zimbra_config(cfg):
+    missing = []
+    if not str(cfg.get("zimbra_host") or cfg.get("host") or "").strip():
+        missing.append("ZIMBRA_HOST")
+    if not zimbra_email(cfg):
+        missing.append("ZIMBRA_EMAIL")
+    if not str(cfg.get("zimbra_password") or cfg.get("password") or "").strip():
+        missing.append("ZIMBRA_PASSWORD")
+    if missing:
+        raise ValueError("Missing transfer config: " + ", ".join(missing))
 
 
 def transfer_subject(folder_name):
@@ -85,24 +92,40 @@ def send_transfer_from_folder(cfg, folder_path):
     to_addr = zimbra_email(cfg)
     folder_id = str(cfg.get("zimbra_folder_id") or "2")
     subject = transfer_subject(folder.name)
-    zimbra_send_email(
-        cfg,
-        to_addr,
-        subject,
-        f"Pipeline upload bundle: {folder.name}",
-        [
-            {
-                "filename": f"{folder.name}.zip",
-                "data": make_transfer_zip(folder),
-                "content_type": "application/zip",
-            }
-        ],
-        folder_id=folder_id,
-    )
+    with ZimbraClient(cfg) as client:
+        client.send_message(
+            to=to_addr,
+            subject=subject,
+            text=f"Pipeline upload bundle: {folder.name}",
+            attachments=[
+                Attachment(
+                    filename=f"{folder.name}.zip",
+                    data=make_transfer_zip(folder),
+                    content_type="application/zip",
+                )
+            ],
+        )
+        _move_sent_message(client, subject, folder_id)
     log.info("Transfer email sent to %s folder_id=%s for %s", to_addr, folder_id, folder)
     publish_transfer_request(cfg, folder.name, subject=subject)
     log.info("Transfer wake-up published for %s", folder.name)
     return folder.name
+
+
+def _move_sent_message(client, subject, folder_id):
+    dest = str(folder_id or "").strip()
+    if not dest or dest == "2":
+        return
+
+    subject_text = str(subject or "").strip()
+    for attempt in range(ZIMBRA_LOOKUP_ATTEMPTS):
+        for message in client.search_messages(folder_id="2", limit=20).messages:
+            if str(message.subject or "").strip() == subject_text:
+                client.move_message(message.id, dest)
+                return
+        if attempt + 1 < ZIMBRA_LOOKUP_ATTEMPTS:
+            time.sleep(ZIMBRA_LOOKUP_DELAY_SECONDS * (attempt + 1))
+    raise RuntimeError(f"Transfer sent but message not found in Inbox to move to folder {dest}")
 
 
 def _norm_email(value):
@@ -110,22 +133,22 @@ def _norm_email(value):
 
 
 def matches_transfer_message(cfg, message):
-    folder = parse_transfer_subject(message.get("subject"))
+    folder = parse_transfer_subject(message.subject)
     address = _norm_email(zimbra_email(cfg))
     return bool(
         folder
         and address
-        and address in {_norm_email(item) for item in message.get("to", [])}
+        and address in {_norm_email(item.email) for item in message.to}
     )
 
 
 def _zip_attachment(message, folder):
     wanted = f"{folder}.zip".lower()
-    attachments = message.get("attachments", [])
-    exact = [a for a in attachments if a.get("filename", "").lower() == wanted and a.get("part")]
+    attachments = message.attachments
+    exact = [a for a in attachments if a.filename.lower() == wanted and a.part]
     if exact:
         return exact[0]
-    return next((a for a in attachments if a.get("filename", "").lower().endswith(".zip") and a.get("part")), None)
+    return next((a for a in attachments if a.filename.lower().endswith(".zip") and a.part), None)
 
 
 def safe_extract_transfer_zip(zip_bytes, output_root, expected_folder):
@@ -152,16 +175,14 @@ def safe_extract_transfer_zip(zip_bytes, output_root, expected_folder):
     return str(target)
 
 
-def _find_transfer_message(cfg, host, token, folder, subject=None):
+def _find_transfer_message(client, cfg, folder, subject=None):
     folder_id = str(cfg.get("zimbra_folder_id") or "2")
     limit = int(cfg.get("zimbra_scan_limit") or 10)
     expected_subject = str(subject or transfer_subject(folder)).strip()
 
-    for message_id in zimbra_search(host, token, folder_id, limit):
-        message = zimbra_get_message(host, token, message_id)
-        if not message:
-            continue
-        message_subject = str(message.get("subject") or "").strip()
+    for summary in client.search_messages(folder_id=folder_id, limit=limit).messages:
+        message = client.get_message(summary.id, html=False)
+        message_subject = str(message.subject or "").strip()
         if message_subject != expected_subject and not matches_transfer_message(cfg, message):
             continue
         parsed_folder = parse_transfer_subject(message_subject) or folder
@@ -170,43 +191,41 @@ def _find_transfer_message(cfg, host, token, folder, subject=None):
         attachment = _zip_attachment(message, folder)
         if not attachment:
             continue
-        return message_id, message, attachment
+        return message.id, message, attachment
     return None, None, None
 
 
 def _process_transfer_message(cfg, folder, deliver_folder, subject=None):
     require_zimbra_config(cfg)
-    host = zimbra_host(cfg)
-    token = zimbra_login(cfg)
+    with ZimbraClient(cfg) as client:
+        message_id = None
+        attachment = None
+        for attempt in range(ZIMBRA_LOOKUP_ATTEMPTS):
+            message_id, message, attachment = _find_transfer_message(client, cfg, folder, subject=subject)
+            if message_id:
+                break
+            if attempt + 1 < ZIMBRA_LOOKUP_ATTEMPTS:
+                delay = ZIMBRA_LOOKUP_DELAY_SECONDS * (attempt + 1)
+                log.info(
+                    "Transfer email not ready for folder=%s; retrying in %.1fs (%d/%d)",
+                    folder,
+                    delay,
+                    attempt + 1,
+                    ZIMBRA_LOOKUP_ATTEMPTS,
+                )
+                time.sleep(delay)
 
-    message_id = None
-    attachment = None
-    for attempt in range(ZIMBRA_LOOKUP_ATTEMPTS):
-        message_id, message, attachment = _find_transfer_message(cfg, host, token, folder, subject=subject)
-        if message_id:
-            break
-        if attempt + 1 < ZIMBRA_LOOKUP_ATTEMPTS:
-            delay = ZIMBRA_LOOKUP_DELAY_SECONDS * (attempt + 1)
-            log.info(
-                "Transfer email not ready for folder=%s; retrying in %.1fs (%d/%d)",
-                folder,
-                delay,
-                attempt + 1,
-                ZIMBRA_LOOKUP_ATTEMPTS,
-            )
-            time.sleep(delay)
+        if not message_id or not attachment:
+            raise ValueError(f"No matching transfer email found for folder {folder}")
 
-    if not message_id or not attachment:
-        raise ValueError(f"No matching transfer email found for folder {folder}")
-
-    safe_extract_transfer_zip(
-        download_attachment(cfg, token, message_id, attachment["part"]),
-        cfg.get("output_root", "output"),
-        folder,
-    )
-    deliver_folder(folder)
-    zimbra_delete_message(host, token, message_id)
-    log.info("Transfer processed and deleted: message=%s folder=%s", message_id, folder)
+        safe_extract_transfer_zip(
+            client.download_attachment(message_id, attachment.part),
+            cfg.get("output_root", "output"),
+            folder,
+        )
+        deliver_folder(folder)
+        client.delete_message(message_id)
+        log.info("Transfer processed and deleted: message=%s folder=%s", message_id, folder)
     return folder
 
 

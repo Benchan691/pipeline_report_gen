@@ -1,26 +1,30 @@
 import io
 import json
 import os
+import shutil
 import tempfile
 import unittest
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
-from urllib.error import HTTPError
 
-from pipeline.cli import build_arg_parser, load_or_build_cards
+from pipeline.cli import build_arg_parser, load_or_build_cards, send_report_email
 from pipeline.amqp import parse_transfer_request, transfer_request_payload
 from pipeline.edrive_upload import check_edrive_connectivity
 from pipeline.evidence import inspect_existing_evidence, write_evidence
 from pipeline.output import apply_run_output_paths, report_date_prefix
 from pipeline.transfer import (
+    _process_transfer_message,
     delete_received_output_folder,
     make_test_transfer_folder,
     make_transfer_zip,
     safe_extract_transfer_zip,
+    send_transfer_from_folder,
+    transfer_subject,
 )
-from plugin.zimbra.zimbra import soap_request
+from zimbra_client import Attachment, Message, Recipient, SearchResult
 
 
 class PipelineTests(unittest.TestCase):
@@ -92,11 +96,96 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 delete_received_output_folder(output_root, ".")
 
-    def test_soap_request_includes_zimbra_error_body(self):
-        error = HTTPError("https://zimbra.example/service/soap", 500, "Server Error", None, io.BytesIO(b"<Fault>message too large</Fault>"))
-        with patch("plugin.zimbra.zimbra.urllib.request.urlopen", side_effect=error):
-            with self.assertRaisesRegex(RuntimeError, r"500.*message too large"):
-                soap_request("zimbra.example", "<SendMsgRequest/>")
+    def test_transfer_uses_zimbra_client_and_typed_attachment(self):
+        cfg = {
+            "zimbra_host": "zimbra.example",
+            "zimbra_email": "transfer@example.com",
+            "zimbra_password": "secret",
+            "zimbra_folder_id": "256",
+        }
+        with tempfile.TemporaryDirectory() as output_root:
+            folder = Path(output_root) / "20260706_173000"
+            folder.mkdir()
+            (folder / "report.txt").write_text("report", encoding="utf-8")
+            subject = transfer_subject(folder.name)
+            with patch("pipeline.transfer.ZimbraClient") as client_class, patch(
+                "pipeline.transfer.publish_transfer_request"
+            ):
+                client = client_class.return_value.__enter__.return_value
+                client.search_messages.return_value = SearchResult(
+                    messages=(Message(id="sent-1", subject=subject),)
+                )
+                self.assertEqual(send_transfer_from_folder(cfg, folder), folder.name)
+
+        client_class.assert_called_once_with(cfg)
+        client.send_message.assert_called_once()
+        sent = client.send_message.call_args.kwargs
+        self.assertEqual(sent["to"], cfg["zimbra_email"])
+        self.assertEqual(sent["subject"], subject)
+        self.assertIsInstance(sent["attachments"][0], Attachment)
+        self.assertEqual(sent["attachments"][0].filename, f"{folder.name}.zip")
+        client.move_message.assert_called_once_with("sent-1", "256")
+
+    def test_receive_transfer_uses_package_message_and_attachment_api(self):
+        folder = "20260706_173000"
+        cfg = {
+            "zimbra_host": "zimbra.example",
+            "zimbra_email": "transfer@example.com",
+            "zimbra_password": "secret",
+            "output_root": tempfile.mkdtemp(),
+        }
+        subject = transfer_subject(folder)
+        attachment = Attachment(filename=f"{folder}.zip", part="2", content_type="application/zip")
+        summary = Message(id="message-1", subject=subject)
+        message = Message(
+            id="message-1",
+            subject=subject,
+            to=(Recipient(email=cfg["zimbra_email"]),),
+            attachments=(attachment,),
+        )
+        zip_bytes = io.BytesIO()
+        with zipfile.ZipFile(zip_bytes, "w") as archive:
+            archive.writestr(f"{folder}/report.txt", "report")
+
+        try:
+            with patch("pipeline.transfer.ZimbraClient") as client_class:
+                client = client_class.return_value.__enter__.return_value
+                client.search_messages.return_value = SearchResult(messages=(summary,))
+                client.get_message.return_value = message
+                client.download_attachment.return_value = zip_bytes.getvalue()
+                delivered = SimpleNamespace(calls=[])
+
+                def deliver(folder_name):
+                    delivered.calls.append(folder_name)
+
+                self.assertEqual(_process_transfer_message(cfg, folder, deliver), folder)
+
+            client.search_messages.assert_called_once_with(folder_id="2", limit=10)
+            client.get_message.assert_called_once_with("message-1", html=False)
+            client.download_attachment.assert_called_once_with("message-1", "2")
+            client.delete_message.assert_called_once_with("message-1")
+            self.assertEqual(delivered.calls, [folder])
+        finally:
+            shutil.rmtree(cfg["output_root"])
+
+    def test_report_email_uses_zimbra_client(self):
+        cfg = {
+            "zimbra_host": "zimbra.example",
+            "zimbra_email": "sender@example.com",
+            "zimbra_password": "secret",
+            "email_receiver": ["recipient@example.com"],
+            "email_body": "Report link:",
+        }
+        with patch("pipeline.cli.ZimbraClient") as client_class:
+            client = client_class.return_value.__enter__.return_value
+            send_report_email(cfg, "https://edrive.example/share", subject="Weekly report")
+
+        client_class.assert_called_once_with(cfg)
+        client.send_message.assert_called_once_with(
+            to=["recipient@example.com"],
+            subject="Weekly report",
+            text="Report link:\n\nhttps://edrive.example/share",
+        )
 
     def test_transfer_request_payload_and_parser(self):
         payload = transfer_request_payload("20260706_173000")

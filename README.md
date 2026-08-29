@@ -101,7 +101,7 @@ Copy [`.env.example`](.env.example) to `.env`, then supply the credentials neede
 - `mongosh` in `PATH`
 - An OpenAI-compatible local AI server (the configured server must support `chat_template_kwargs`)
 - SearXNG when `search_provider` is `searxng`, or a Firecrawl API key when using Firecrawl
-- The local [eDrive client](plugin/edrive/) and [Zimbra client](plugin/zimbra/)
+- The local [eDrive client](plugin/edrive/) and PyPI [`zimbra-client`](https://pypi.org/project/zimbra-client/) package
 
 ## Project layout
 
