@@ -99,10 +99,10 @@ Copy [`.env.example`](.env.example) to `.env`, then supply the credentials neede
 
 - Python packages from [requirements.txt](requirements.txt)
 - `mongosh` in `PATH`
+- `curl` and `openssl` in `PATH` for eDrive login and uploads
 - An OpenAI-compatible local AI server (the configured server must support `chat_template_kwargs`)
 - SearXNG when `search_provider` is `searxng`, or a Firecrawl API key when using Firecrawl
-- The local [eDrive client](plugin/edrive/) and PyPI [`zimbra-client`](https://pypi.org/project/zimbra-client/) package
-
+- PyPI [`zimbra-client`](https://pypi.org/project/zimbra-client/) and [`edrive-anyshare`](https://pypi.org/project/edrive-anyshare/1.0.0/) packages
 ## Project layout
 
 - [main.py](main.py) — CLI entry point

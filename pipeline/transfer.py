@@ -1,7 +1,11 @@
+import json
 import logging
 import posixpath
 import shutil
 import time
+import traceback
+import urllib.error
+import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
 from email.utils import parseaddr
@@ -9,6 +13,7 @@ from io import BytesIO
 from pathlib import Path
 
 from zimbra_client import Attachment, ZimbraClient
+from zimbra_client.mail import MAIL_NAMESPACE, _qname
 
 from pipeline.amqp import consume_transfer_requests, publish_transfer_request
 from pipeline.edrive_upload import check_edrive_connectivity_or_exit
@@ -18,6 +23,58 @@ log = logging.getLogger(__name__)
 SUBJECT_PREFIX = "PIPELINE_UPLOAD:"
 ZIMBRA_LOOKUP_ATTEMPTS = 8
 ZIMBRA_LOOKUP_DELAY_SECONDS = 0.5
+_AGENT_DEBUG_LOG = Path(__file__).resolve().parent.parent / ".cursor" / "debug-e541fa.log"
+
+
+def _agent_debug(hypothesis_id, location, message, data=None, run_id="pre-fix"):
+    # #region agent log
+    payload = {
+        "sessionId": "e541fa",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data or {},
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        _AGENT_DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(_AGENT_DEBUG_LOG, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    # #endregion
+
+
+def _mask_email(value):
+    text = str(value or "").strip()
+    if "@" not in text:
+        return text or "(empty)"
+    local, domain = text.split("@", 1)
+    if len(local) <= 2:
+        return f"**@{domain}"
+    return f"{local[:2]}***@{domain}"
+
+
+def _exception_details(exc):
+    details = {
+        "exc_type": type(exc).__name__,
+        "exc_message": str(exc),
+    }
+    if isinstance(exc, urllib.error.HTTPError):
+        details["http_status"] = exc.code
+        details["http_reason"] = str(exc.reason)
+        try:
+            body = exc.read()
+            if isinstance(body, bytes):
+                body = body.decode("utf-8", errors="replace")
+            details["http_body_prefix"] = body[:500]
+        except Exception as read_exc:
+            details["http_body_read_error"] = type(read_exc).__name__
+    for attr in ("code", "status_code", "message"):
+        if hasattr(exc, attr):
+            details[f"exc_{attr}"] = getattr(exc, attr)
+    return details
 
 
 def zimbra_email(cfg):
@@ -125,7 +182,7 @@ def _move_sent_message(client, subject, folder_id):
                 return
         if attempt + 1 < ZIMBRA_LOOKUP_ATTEMPTS:
             time.sleep(ZIMBRA_LOOKUP_DELAY_SECONDS * (attempt + 1))
-    raise RuntimeError(f"Transfer sent but message not found in Inbox to move to folder {dest}")
+    log.warning("Transfer sent but message not found in Inbox to move to folder %s", dest)
 
 
 def _norm_email(value):
@@ -140,6 +197,51 @@ def matches_transfer_message(cfg, message):
         and address
         and address in {_norm_email(item.email) for item in message.to}
     )
+
+
+def _xml_local_name(tag):
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _transfer_search_folder_ids(cfg):
+    configured = str(cfg.get("zimbra_folder_id") or "2").strip() or "2"
+    folder_ids = [configured]
+    if configured != "2":
+        folder_ids.append("2")
+    return folder_ids
+
+
+def _zip_attachment_part(client, message_id, folder):
+    """Resolve ZIP attachment part via SearchRequest fetch; GetMsg is broken on some Zimbra builds."""
+    request = ET.Element(_qname(MAIL_NAMESPACE, "SearchRequest"))
+    request.set("types", "message")
+    request.set("fetch", "1")
+    request.set("html", "0")
+    query = ET.SubElement(request, "query")
+    query.text = f"id:{message_id}"
+    root = client.request(request)
+    wanted = f"{folder}.zip".lower()
+    exact = []
+    fallback = []
+    for element in root.iter():
+        if _xml_local_name(element.tag) != "mp":
+            continue
+        part = str(element.get("part") or "").strip()
+        if not part or part.upper() == "TEXT":
+            continue
+        filename = str(element.get("filename") or "").lower()
+        content_type = str(element.get("ct") or "").lower()
+        if filename == wanted:
+            exact.append((part, filename or wanted))
+        elif filename.endswith(".zip") or content_type == "application/zip":
+            fallback.append((part, filename or wanted))
+    if exact:
+        part, filename = exact[0]
+    elif fallback:
+        part, filename = fallback[0]
+    else:
+        return None
+    return Attachment(filename=filename, part=part, data=b"")
 
 
 def _zip_attachment(message, folder):
@@ -176,28 +278,120 @@ def safe_extract_transfer_zip(zip_bytes, output_root, expected_folder):
 
 
 def _find_transfer_message(client, cfg, folder, subject=None):
-    folder_id = str(cfg.get("zimbra_folder_id") or "2")
     limit = int(cfg.get("zimbra_scan_limit") or 10)
     expected_subject = str(subject or transfer_subject(folder)).strip()
+    folder_ids = _transfer_search_folder_ids(cfg)
 
-    for summary in client.search_messages(folder_id=folder_id, limit=limit).messages:
-        message = client.get_message(summary.id, html=False)
-        message_subject = str(message.subject or "").strip()
-        if message_subject != expected_subject and not matches_transfer_message(cfg, message):
-            continue
-        parsed_folder = parse_transfer_subject(message_subject) or folder
-        if parsed_folder != folder:
-            continue
-        attachment = _zip_attachment(message, folder)
-        if not attachment:
-            continue
-        return message.id, message, attachment
+    for folder_id in folder_ids:
+      # #region agent log
+        _agent_debug(
+            "H2",
+            "transfer.py:_find_transfer_message:before_search",
+            "searching transfer mailbox",
+            {"folder_id": folder_id, "limit": limit, "expected_subject": expected_subject, "folder": folder},
+        )
+      # #endregion
+        try:
+            search_result = client.search_messages(folder_id=folder_id, limit=limit)
+        except Exception as exc:
+          # #region agent log
+            _agent_debug(
+                "H2",
+                "transfer.py:_find_transfer_message:search_failed",
+                "search_messages failed",
+                {"folder_id": folder_id, **_exception_details(exc)},
+            )
+          # #endregion
+            raise
+
+      # #region agent log
+        _agent_debug(
+            "H2",
+            "transfer.py:_find_transfer_message:after_search",
+            "search_messages succeeded",
+            {"folder_id": folder_id, "message_count": len(search_result.messages)},
+        )
+      # #endregion
+
+        for summary in search_result.messages:
+            summary_subject = str(summary.subject or "").strip()
+            if summary_subject != expected_subject and not matches_transfer_message(cfg, summary):
+                continue
+            parsed_folder = parse_transfer_subject(summary_subject) or folder
+            if parsed_folder != folder:
+                continue
+            try:
+                attachment = _zip_attachment_part(client, summary.id, folder)
+            except Exception as exc:
+              # #region agent log
+                _agent_debug(
+                    "H3",
+                    "transfer.py:_find_transfer_message:attachment_lookup_failed",
+                    "zip attachment lookup failed; skipping message",
+                    {"message_id": summary.id, "summary_subject": summary_subject, **_exception_details(exc)},
+                )
+              # #endregion
+                log.warning("Skipping message %s after attachment lookup failure: %s", summary.id, exc)
+                continue
+            if not attachment:
+                continue
+          # #region agent log
+            _agent_debug(
+                "H3",
+                "transfer.py:_find_transfer_message:match_found",
+                "transfer message matched",
+                {"message_id": summary.id, "folder_id": folder_id, "attachment_part": attachment.part},
+            )
+          # #endregion
+            return summary.id, summary, attachment
     return None, None, None
 
 
 def _process_transfer_message(cfg, folder, deliver_folder, subject=None):
     require_zimbra_config(cfg)
+  # #region agent log
+    _agent_debug(
+        "H5",
+        "transfer.py:_process_transfer_message:entry",
+        "processing transfer message",
+        {
+            "folder": folder,
+            "subject": subject,
+            "zimbra_host": str(cfg.get("zimbra_host") or cfg.get("host") or ""),
+            "zimbra_email": _mask_email(zimbra_email(cfg)),
+            "zimbra_folder_id": str(cfg.get("zimbra_folder_id") or "2"),
+            "zimbra_scan_limit": int(cfg.get("zimbra_scan_limit") or 10),
+        },
+    )
+  # #endregion
     with ZimbraClient(cfg) as client:
+      # #region agent log
+        _agent_debug(
+            "H1",
+            "transfer.py:_process_transfer_message:after_login",
+            "zimbra login succeeded",
+            {"authenticated": client.is_authenticated, "soap_url": client.soap_url},
+        )
+      # #endregion
+        try:
+            inbox_probe = client.search_messages(folder_id="2", limit=1)
+          # #region agent log
+            _agent_debug(
+                "H4",
+                "transfer.py:_process_transfer_message:inbox_probe",
+                "inbox search succeeded",
+                {"inbox_message_count": len(inbox_probe.messages)},
+            )
+          # #endregion
+        except Exception as exc:
+          # #region agent log
+            _agent_debug(
+                "H4",
+                "transfer.py:_process_transfer_message:inbox_probe_failed",
+                "inbox search failed",
+                _exception_details(exc),
+            )
+          # #endregion
         message_id = None
         attachment = None
         for attempt in range(ZIMBRA_LOOKUP_ATTEMPTS):
@@ -216,16 +410,45 @@ def _process_transfer_message(cfg, folder, deliver_folder, subject=None):
                 time.sleep(delay)
 
         if not message_id or not attachment:
+          # #region agent log
+            _agent_debug(
+                "H2",
+                "transfer.py:_process_transfer_message:not_found",
+                "transfer email not found after retries",
+                {"folder": folder, "attempts": ZIMBRA_LOOKUP_ATTEMPTS},
+            )
+          # #endregion
             raise ValueError(f"No matching transfer email found for folder {folder}")
 
+        try:
+            zip_bytes = client.download_attachment(message_id, attachment.part)
+        except Exception as exc:
+          # #region agent log
+            _agent_debug(
+                "H3",
+                "transfer.py:_process_transfer_message:download_failed",
+                "download_attachment failed",
+                {"message_id": message_id, "part": attachment.part, **_exception_details(exc)},
+            )
+          # #endregion
+            raise
+
         safe_extract_transfer_zip(
-            client.download_attachment(message_id, attachment.part),
+            zip_bytes,
             cfg.get("output_root", "output"),
             folder,
         )
         deliver_folder(folder)
         client.delete_message(message_id)
         log.info("Transfer processed and deleted: message=%s folder=%s", message_id, folder)
+  # #region agent log
+    _agent_debug(
+        "H1",
+        "transfer.py:_process_transfer_message:success",
+        "transfer message processed",
+        {"folder": folder, "message_id": message_id},
+    )
+  # #endregion
     return folder
 
 
@@ -258,7 +481,23 @@ def receive_transfer(cfg, deliver_folder, fake=False):
         delete_received_output_folder(cfg.get("output_root", "output"), folder_name)
 
     def on_message(folder, subject):
-        _process_transfer_message(cfg, folder, deliver, subject=subject)
+        try:
+            _process_transfer_message(cfg, folder, deliver, subject=subject)
+        except Exception as exc:
+          # #region agent log
+            _agent_debug(
+                "H1",
+                "transfer.py:receive_transfer:on_message_failed",
+                "transfer wake-up processing failed",
+                {
+                    "folder": folder,
+                    "subject": subject,
+                    **_exception_details(exc),
+                    "traceback": traceback.format_exc()[-1500:],
+                },
+            )
+          # #endregion
+            raise
 
     consume_transfer_requests(cfg, on_message)
     return None

@@ -3,4 +3,4 @@ openpyxl
 python-dotenv
 pika
 zimbra-client
--e ./plugin/edrive
+edrive-anyshare==1.0.0
