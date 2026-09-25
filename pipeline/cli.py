@@ -20,6 +20,7 @@ from pipeline.evidence import (
     extract_evidence_cards,
     inspect_existing_evidence,
     load_existing_evidence,
+    matching_evidence_cards,
     merge_cards,
     pick_for_lang,
     update_vulnerability_cards,
@@ -28,7 +29,7 @@ from pipeline.evidence import (
 from pipeline.excel_report import build_weekly_excel, row_height
 from pipeline.formatting import category, format_severity, localized, weekly_row, word_rows
 from pipeline.edrive_upload import upload_output_folder_or_exit
-from pipeline.mongo import candidate_from_cnnvd_doc, query_cnvd, query_cnvd_by_scrape_days
+from pipeline.mongo import query_cnvd, query_cnvd_by_scrape_days
 from pipeline.vuln_match import load_filtered_candidates
 from pipeline.output import (
     apply_dated_output_path,
@@ -50,7 +51,6 @@ from pipeline.transfer import (
     send_test_transfer,
     send_transfer_from_folder,
 )
-from pipeline.utils import norm_cnvd
 
 log = logging.getLogger(__name__)
 
@@ -112,8 +112,12 @@ def load_or_build_cards(cfg, candidates):
         cached_cards.extend(new_cards)
         search_results.extend(new_search_results)
         evidence_cards.extend(new_evidence_cards)
-    cards_by_id = {card["cnvd_id"]: card for card in cached_cards}
-    cards = [cards_by_id[candidate["cnvd_id"]] for candidate in candidates]
+    cards = []
+    for candidate in candidates:
+        matching_cards = matching_evidence_cards(candidate, cached_cards)
+        if not matching_cards:
+            raise ValueError(f"No cached or generated evidence card for {candidate['cnvd_id']}")
+        cards.append(matching_cards[0])
     return cards, search_results, evidence_cards
 
 

@@ -67,9 +67,9 @@ For `--send-transfer` and `--send-email`, pass either a run-folder name under `o
 
 | Setting | Purpose |
 | --- | --- |
-| `scrape_days` | Number of recently scraped CNVD records to load when `cnvd_ids` is not set. |
-| `cnvd_ids` | Optional explicit list of IDs; overrides `scrape_days`. |
-| `use_filtered_vuln_ids` | Enable software-cluster matching before search. |
+| `scrape_days` | Number of recently observed CNVD records to load from `vulnerabilities.news` when `cnvd_ids` is not set. |
+| `cnvd_ids` | Optional CNVD ID list; resolves `cnvd:<id>` records from `vulnerabilities.news` and overrides `scrape_days`. |
+| `use_filtered_vuln_ids` | Enable software-cluster matching against recent CNVD and CNNVD records in `vulnerabilities.news`. |
 | `software_cluster_csv` | Sorted software-cluster summary used for matching. |
 | `search_provider` | `firecrawl` or `searxng`. |
 | `firecrawl_retries` | Max Firecrawl attempts on failure (default `5`). |

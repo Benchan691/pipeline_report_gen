@@ -6,8 +6,15 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from pipeline.constants import DB
-from pipeline.mongo import candidates_from_payload, doc_published_text, provider_details, run_mongo
+from pipeline.mongo import (
+    candidates_from_payload,
+    doc_display_id,
+    doc_provider,
+    doc_published_text,
+    doc_record_id,
+    provider_details,
+    query_news,
+)
 from pipeline.utils import norm_cnvd, norm_cnnvd
 
 log = logging.getLogger(__name__)
@@ -74,29 +81,7 @@ def software_terms(path):
 
 
 def docs_for(source, days):
-    cutoff_ms = ""
-    if days is not None:
-        cutoff_ms = str(int((datetime.now(timezone.utc).timestamp() - int(days) * 86400) * 1000))
-    script = """
-function serializeDocs(docs) {
-  return docs.map(doc => {
-    for (const key of Object.keys(doc)) {
-      if (doc[key] instanceof Date) doc[key] = doc[key].toISOString();
-    }
-    return doc;
-  });
-}
-const cutoffMs = __CUTOFF_MS__;
-const cutoff = cutoffMs === "" ? null : new Date(Number(cutoffMs));
-const cutoffIso = cutoff ? cutoff.toISOString() : null;
-const q = cutoff ? {$or: [{observed_at: {$gte: cutoff}}, {scraped_at: {$gte: cutoffIso}}]} : {};
-const docs = db.getSiblingDB("__DB__").getCollection("__COLL__").find(q, {
-  code: 1, title: 1, severity: 1, status: 1, cve_ids: 1, cve_codes: 1, details: 1, source: 1,
-  published_at: 1, updated_at: 1, observed_at: 1, disclosure_date: 1, published_time: 1, scraped_at: 1
-}).toArray();
-print(JSON.stringify(serializeDocs(docs)));
-""".replace("__DB__", DB).replace("__COLL__", source).replace("__CUTOFF_MS__", json.dumps(cutoff_ms))
-    return run_mongo(script)
+    return query_news((source,), days=days)
 
 
 def searchable_text(source, doc):
@@ -184,7 +169,8 @@ def match_confirmation_prompt(doc, source, match):
     user = {
         "matched_term": match.get("term") or "",
         "cluster_label": match.get("cluster_label") or "",
-        "vuln_id": norm_id(source, doc.get("code")),
+        "vuln_id": doc_display_id(doc, source) or norm_id(source, doc.get("code")),
+        "record_id": doc_record_id(doc, source),
         "title": fields["title"],
         "product": fields["product"],
         "vendor": fields["vendor"],
@@ -196,7 +182,8 @@ def match_confirmation_prompt(doc, source, match):
 def match_detail(source, doc, match):
     fields = doc_fields(source, doc)
     return {
-        "id": norm_id(source, doc.get("code")),
+        "id": doc_display_id(doc, source) or norm_id(source, doc.get("code")),
+        "record_id": doc_record_id(doc, source),
         "title": fields["title"] or doc.get("title") or "",
         "product": fields["product"],
         "vendor": fields["vendor"],
@@ -426,18 +413,22 @@ def build_filtered_matches(cfg):
         docs = docs_for(source, days)
         log.info("  Scanning %d %s document(s)", len(docs), source.upper())
         for doc in docs:
+            provider = doc_provider(doc, source)
+            if provider != source:
+                log.info("  Skipping %s document with provider=%r", source.upper(), provider)
+                continue
             severity = norm_severity(doc.get("severity") or doc.get("status"))
             if allowed and severity not in allowed:
                 continue
             match = first_match(terms, searchable_text(source, doc))
             if not match:
                 continue
-            vid = norm_id(source, doc.get("code"))
-            if vid in seen:
-                log.info("  Duplicate keyword hit skipped: %s (term=%r)", vid, match["term"])
-                continue
             detail = match_detail(source, doc, match)
-            seen.add(vid)
+            record_id = detail["record_id"] or detail["id"]
+            if record_id in seen:
+                log.info("  Duplicate keyword hit skipped: %s (term=%r)", detail["id"], match["term"])
+                continue
+            seen.add(record_id)
             keyword_hits += 1
             log.info(
                 "  Keyword hit %s [%s] term=%r (%s) cluster=%s (%s, size=%s) product=%r vendor=%r title=%s",
@@ -466,7 +457,8 @@ def build_filtered_matches(cfg):
                 "match": match,
                 "item": {
                     "source": source,
-                    "id": vid,
+                    "id": detail["id"],
+                    "record_id": record_id,
                     "severity": severity,
                     "mark": mark,
                     "mark_reasons": reasons,

@@ -80,6 +80,24 @@ class MongoSchemaV2Tests(unittest.TestCase):
         }
         self.assertEqual(word_rows(card, "zh")[3][3], "2026-07-20")
 
+    def test_docx_id_label_tracks_the_provider(self):
+        cnvd = {
+            "source": "cnvd",
+            "cnvd_id": "CNVD-2026-1",
+            "cve_id": "CVE-2026-1",
+            "title": {"zh": "CNVD", "en": "CNVD"},
+            "doc": {"details": {}},
+        }
+        cnnvd = {
+            **cnvd,
+            "source": "cnnvd",
+            "cnvd_id": "CNNVD-2026-1",
+        }
+
+        self.assertEqual(word_rows(cnvd, "zh")[1][2], "CNVD编号")
+        self.assertEqual(word_rows(cnnvd, "zh")[1][2], "CNNVD编号")
+        self.assertEqual(word_rows(cnnvd, "en")[1][2], "CNNVD Number")
+
 
 if __name__ == "__main__":
     unittest.main()

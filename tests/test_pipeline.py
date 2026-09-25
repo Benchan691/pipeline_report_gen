@@ -14,6 +14,8 @@ from pipeline.cli import build_arg_parser, load_or_build_cards, send_report_emai
 from pipeline.amqp import parse_transfer_request, transfer_request_payload
 from pipeline.edrive_upload import check_edrive_connectivity
 from pipeline.evidence import inspect_existing_evidence, write_evidence
+from pipeline.excel_report import build_weekly_excel
+from pipeline.dependencies import load_workbook
 from pipeline.output import apply_run_output_paths, report_date_prefix
 from pipeline.transfer import (
     _process_transfer_message,
@@ -48,6 +50,59 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual([card["cnvd_id"] for card in state["cached_cards"]], ["CNVD-1"])
         self.assertFalse(state["missing_candidates"])
         self.assertEqual(state["search_results"], [{"cnvd_id": "CNVD-1"}])
+
+    def test_legacy_display_id_cache_hydrates_the_new_canonical_id(self):
+        candidate = self.candidate("CNVD-1")
+        candidate.update({"record_id": "cnvd:1", "source": "cnvd"})
+        payload = {
+            "search_results": [{"cnvd_id": "CNVD-1"}],
+            "source_evidence_cards": [{"cnvd_id": "CNVD-1"}],
+            "vulnerability_cards": [{
+                "cnvd_id": "CNVD-1",
+                "title": {"zh": "T", "en": "T"},
+                "what_happened": {"zh": "description", "en": "description"},
+                "why_matters": {"zh": "", "en": ""},
+                "how_to_respond": {"zh": "fix", "en": "fix"},
+            }],
+        }
+        with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as evidence_file:
+            json.dump(payload, evidence_file)
+            evidence_file.flush()
+            state = inspect_existing_evidence(evidence_file.name, [candidate])
+
+        self.assertEqual(state["cached_cards"][0]["record_id"], "cnvd:1")
+        self.assertEqual(state["cached_cards"][0]["source"], "cnvd")
+        self.assertFalse(state["missing_candidates"])
+        self.assertEqual(state["search_results"], [{"cnvd_id": "CNVD-1"}])
+
+    def test_cache_identity_prefers_record_id_when_display_id_is_reused(self):
+        candidate = self.candidate("CNVD-1")
+        candidate.update({"record_id": "cnvd:new", "source": "cnvd"})
+        payload = {
+            "vulnerability_cards": [{
+                "record_id": "cnvd:old",
+                "cnvd_id": "CNVD-1",
+                "what_happened": {"zh": "old record", "en": "old record"},
+            }],
+        }
+        with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as evidence_file:
+            json.dump(payload, evidence_file)
+            evidence_file.flush()
+            state = inspect_existing_evidence(evidence_file.name, [candidate])
+
+        self.assertEqual(state["cached_cards"], [])
+        self.assertEqual(state["missing_candidates"], [candidate])
+
+    def test_weekly_excel_uses_generic_vulnerability_id_heading(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = os.path.join(directory, "weekly.xlsx")
+            build_weekly_excel([], {
+                "weekly_excel_template": "templates/weekly_disclosure.xlsx",
+                "output_weekly_excel": output_path,
+            })
+            workbook = load_workbook(output_path, data_only=True)
+
+        self.assertEqual(workbook.active["D2"].value, "漏洞编号")
 
     def test_cache_builds_only_missing_cards_and_rewrites_complete_payload(self):
         existing, missing = self.candidate("CNVD-1"), self.candidate("CNVD-2")

@@ -1,6 +1,6 @@
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from pipeline.vuln_match import (
     cap_per_cluster,
@@ -46,6 +46,21 @@ class VulnerabilityMatchTests(unittest.TestCase):
         self.assertEqual(call_ai.call_args.kwargs["max_tokens"], 123)
         self.assertTrue(call_ai.call_args.kwargs["enable_thinking"])
         self.assertEqual(call_ai.call_args.kwargs["thinking_budget_tokens"], 45)
+
+    def test_confirmation_prompt_carries_canonical_id_and_display_id(self):
+        document = {
+            "_id": "cnnvd:2026-1000",
+            "code": "2026-1000",
+            "source": {"provider": "cnnvd"},
+            "title": "Google Chrome vulnerability",
+            "details": {"productName": "Google Chrome"},
+        }
+
+        _, user = match_confirmation_prompt(document, "cnnvd", {"term": "Google Chrome"})
+
+        parsed = json.loads(user)
+        self.assertEqual(parsed["vuln_id"], "CNNVD-2026-1000")
+        self.assertEqual(parsed["record_id"], "cnnvd:2026-1000")
 
     def test_confirmation_prompt_defaults_ambiguous_and_indirect_matches_to_false(self):
         document = {"code": "CNNVD-1", "details": {"cnnvd": {"vulName": "SDK vulnerability", "productName": "Snowflake Snowpark Python SDK"}}}
@@ -114,3 +129,44 @@ class VulnerabilityMatchTests(unittest.TestCase):
 
         self.assertEqual(len(payload["matches"]), 2)
         self.assertEqual(confirm.call_count, 2)
+
+    def test_cluster_scan_reads_both_providers_and_keeps_mongo_ids(self):
+        terms = [
+            {"term": "Chrome", "term_kind": "label", "cluster_id": "chrome", "cluster_label": "Chrome", "cluster_size": 1},
+            {"term": "Firefox", "term_kind": "label", "cluster_id": "firefox", "cluster_label": "Firefox", "cluster_size": 1},
+        ]
+        cnvd = {
+            "_id": "cnvd:2026-1",
+            "code": "2026-1",
+            "source": {"provider": "cnvd"},
+            "title": "Chrome vulnerability",
+            "severity": "High",
+            "details": {"affected_products": ["Chrome"]},
+        }
+        cnnvd = {
+            "_id": "cnnvd:2026-2",
+            "code": "2026-2",
+            "source": {"provider": "cnnvd"},
+            "title": "Firefox vulnerability",
+            "severity": "High",
+            "details": {"productName": "Firefox"},
+        }
+        unrelated = {
+            "_id": "avd:2026-3",
+            "code": "2026-3",
+            "source": {"provider": "avd"},
+            "title": "Chrome vulnerability from AVD",
+            "severity": "Critical",
+        }
+        accepted = {"related": True, "confidence": "high", "reason": "direct product match"}
+
+        with patch("pipeline.vuln_match.software_terms", return_value=terms), \
+             patch("pipeline.vuln_match.docs_for", side_effect=[[cnvd], [cnnvd, unrelated]]) as query, \
+             patch("pipeline.vuln_match.confirm_software_match", return_value=accepted):
+            payload, _ = build_filtered_matches({"vuln_match_top_n": 5})
+
+        self.assertEqual(query.call_args_list, [call("cnvd", None), call("cnnvd", None)])
+        self.assertEqual({item["record_id"] for item in payload["matches"]}, {
+            "cnvd:2026-1", "cnnvd:2026-2",
+        })
+        self.assertEqual({item["id"] for item in payload["matches"]}, {"CNVD-2026-1", "CNNVD-2026-2"})

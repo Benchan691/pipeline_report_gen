@@ -99,6 +99,8 @@ def extract_json(text):
 
 def normalize_card(raw, result, candidate):
     card = {
+        "record_id": candidate.get("record_id") or "",
+        "source": candidate.get("source", "cnvd"),
         "cnvd_id": candidate["cnvd_id"],
         "cve_id": candidate.get("cve_id"),
         "search_id": candidate["search_id"],
@@ -120,6 +122,8 @@ def normalize_card(raw, result, candidate):
     for key in ("cnvd_id", "search_id", "title", "what_happened", "why_matters", "how_to_respond", "cvss_vector", "confidence"):
         card[key] = "" if card.get(key) is None else str(card.get(key)).strip()
     card["cnvd_id"] = candidate["cnvd_id"]
+    card["record_id"] = candidate.get("record_id") or ""
+    card["source"] = candidate.get("source", "cnvd")
     card["cve_id"] = candidate.get("cve_id")
     card["search_id"] = candidate["search_id"]
     card["confidence"] = card["confidence"] if card["confidence"] in CONFIDENCE else "low"
@@ -276,13 +280,10 @@ def cards_missing_english(cards):
 
 
 def merge_cards(candidates, evidence_cards):
-    by_candidate = {}
-    for card in evidence_cards:
-        by_candidate.setdefault(card["cnvd_id"], []).append(card)
     merged = []
     log.info("Merging evidence into %d vulnerability card(s)", len(candidates))
     for c in candidates:
-        cards = by_candidate.get(c["cnvd_id"], [])
+        cards = matching_evidence_cards(c, evidence_cards)
         refs = unique(c.get("references", []) + [r for card in cards for r in card.get("references", [])])
         localized = {}
         localized["title"] = {DEFAULT_REPORT_LANG: next((card["title"] for card in cards if card.get("title")), c["title"]), "en": ""}
@@ -290,6 +291,7 @@ def merge_cards(candidates, evidence_cards):
         localized["why_matters"] = {DEFAULT_REPORT_LANG: pick_for_lang(cards, "why_matters"), "en": ""}
         localized["how_to_respond"] = {DEFAULT_REPORT_LANG: pick_for_lang(cards, "how_to_respond") or c.get("solution") or "", "en": ""}
         merged.append({
+            "record_id": c.get("record_id") or "",
             "cnvd_id": c["cnvd_id"],
             "source": c.get("source", "cnvd"),
             "cve_id": c.get("cve_id"),
@@ -317,6 +319,8 @@ def merge_cards(candidates, evidence_cards):
             len(localized_field(merged[-1]["how_to_respond"], DEFAULT_REPORT_LANG)),
         )
     return merged
+
+
 def write_evidence(path, candidates, search_results, evidence_cards, merged_cards):
     log.info("Writing evidence JSON to %s", path)
     with open(path, "w", encoding="utf-8") as f:
@@ -369,10 +373,26 @@ def cached_card_is_usable(card):
     return bool(card.get("references") or card.get("affected_versions") or card.get("fixed_versions"))
 
 
+def matching_evidence_cards(candidate, evidence_cards):
+    display_id = candidate.get("cnvd_id")
+    record_id = candidate.get("record_id")
+    if record_id:
+        exact = [card for card in evidence_cards if card.get("record_id") == record_id]
+        if exact:
+            return exact
+        legacy = [
+            card for card in evidence_cards
+            if not card.get("record_id") and card.get("cnvd_id") == display_id
+        ]
+        return legacy
+    return [card for card in evidence_cards if card.get("cnvd_id") == display_id]
+
+
 def hydrate_cached_card(candidate, cached_card, warned=None):
     card = dict(cached_card or {})
-    card.setdefault("cnvd_id", candidate["cnvd_id"])
-    card.setdefault("source", candidate.get("source", "cnvd"))
+    card["record_id"] = candidate.get("record_id") or card.get("record_id") or ""
+    card["cnvd_id"] = candidate["cnvd_id"]
+    card["source"] = candidate.get("source", "cnvd")
     card.setdefault("cve_id", candidate.get("cve_id"))
     card.setdefault("search_id", candidate["search_id"])
     card.setdefault("title", candidate["title"])
@@ -411,20 +431,33 @@ def inspect_existing_evidence(path, candidates):
             "search_results": [],
             "source_evidence_cards": [],
         }
-    by_id = {c["cnvd_id"]: c for c in cards if isinstance(c, dict) and c.get("cnvd_id")}
+    cards = [card for card in cards if isinstance(card, dict)]
     warned = {"missing_en": False}
     cached_cards = []
     missing_candidates = []
-    cached_ids = set()
+    cached_record_ids = set()
+    cached_display_ids = set()
     for candidate in candidates:
-        cached = by_id.get(candidate["cnvd_id"])
+        cached_matches = matching_evidence_cards(candidate, cards)
+        cached = cached_matches[0] if cached_matches else None
         if cached and cached_card_is_usable(cached):
             cached_cards.append(hydrate_cached_card(candidate, cached, warned))
-            cached_ids.add(candidate["cnvd_id"])
+            if candidate.get("record_id"):
+                cached_record_ids.add(candidate["record_id"])
+            cached_display_ids.add(candidate["cnvd_id"])
         else:
             missing_candidates.append(candidate)
-    search_results = [item for item in payload.get("search_results", []) if item.get("cnvd_id") in cached_ids]
-    source_evidence_cards = [item for item in payload.get("source_evidence_cards", []) if item.get("cnvd_id") in cached_ids]
+
+    def belongs_to_cached_candidate(item):
+        if not isinstance(item, dict):
+            return False
+        record_id = item.get("record_id")
+        if record_id:
+            return record_id in cached_record_ids
+        return item.get("cnvd_id") in cached_display_ids
+
+    search_results = [item for item in payload.get("search_results", []) if belongs_to_cached_candidate(item)]
+    source_evidence_cards = [item for item in payload.get("source_evidence_cards", []) if belongs_to_cached_candidate(item)]
     log.info(
         "Existing evidence cache: cached=%d missing=%d",
         len(cached_cards),
@@ -446,10 +479,10 @@ def load_existing_evidence(path, candidates):
     if not cards:
         log.info("Existing evidence is empty; regenerating evidence")
         return None
-    by_id = {c["cnvd_id"]: c for c in cards}
     merged = []
     warned = {"missing_en": False}
     for candidate in candidates:
-        merged.append(hydrate_cached_card(candidate, by_id.get(candidate["cnvd_id"]), warned))
+        cached_matches = matching_evidence_cards(candidate, cards)
+        merged.append(hydrate_cached_card(candidate, cached_matches[0] if cached_matches else None, warned))
     log.info("Loaded %d vulnerability card(s) from evidence JSON", len(merged))
     return merged

@@ -10,6 +10,7 @@ from pipeline.evidence import (
     extract_json,
     evidence_prompt,
     merge_cards,
+    normalize_card,
     strip_thinking,
     translation_prompt,
 )
@@ -55,6 +56,30 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(translated[0]["what_happened"]["zh"], "中文描述")
         self.assertEqual(translated[0]["what_happened"]["en"], "English description")
         self.assertFalse(cards_missing_english(translated))
+
+    def test_record_identity_is_preserved_in_new_evidence_and_cards(self):
+        candidate = {
+            "record_id": "cnnvd:2026-1000",
+            "source": "cnnvd",
+            "cnvd_id": "CNNVD-2026-1000",
+            "search_id": "CVE-2026-1000",
+            "cve_id": "CVE-2026-1000",
+            "title": "Title",
+            "summary": "Description",
+            "solution": "Patch",
+            "doc": {"_id": "cnnvd:2026-1000"},
+        }
+        result = {"task_type": "what_happened", "url": "https://example.test/advisory"}
+
+        evidence = normalize_card({"what_happened": "漏洞说明"}, result, candidate)
+        card = merge_cards([candidate], [evidence])[0]
+
+        self.assertEqual(evidence["record_id"], "cnnvd:2026-1000")
+        self.assertEqual(evidence["source"], "cnnvd")
+        self.assertEqual(evidence["cnvd_id"], "CNNVD-2026-1000")
+        self.assertEqual(card["record_id"], "cnnvd:2026-1000")
+        self.assertEqual(card["source"], "cnnvd")
+        self.assertEqual(card["cnvd_id"], "CNNVD-2026-1000")
 
     def test_ai_connectivity_check_passes_and_fails_clearly(self):
         cfg = {"ai_base_url": "http://ai.example", "ai_model": "qwen-test"}

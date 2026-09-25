@@ -3,11 +3,13 @@ import logging
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 from pipeline.constants import DB
 from pipeline.utils import norm_cnvd, norm_cnnvd, norm_cve
 
 log = logging.getLogger(__name__)
+SUPPORTED_PROVIDERS = ("cnvd", "cnnvd")
 
 
 def run_mongo(script):
@@ -30,6 +32,40 @@ def provider_details(doc, source=None):
     if source and isinstance(details.get(source), dict):
         return details[source]
     return details
+
+
+def doc_provider(doc, default=None):
+    source = doc.get("source") if isinstance(doc.get("source"), dict) else {}
+    provider = source.get("provider") or default or ""
+    return str(provider).strip().lower()
+
+
+def doc_record_id(doc, provider=None):
+    record_id = doc.get("_id")
+    if record_id not in (None, ""):
+        return str(record_id)
+    provider = doc_provider(doc, provider)
+    raw = provider_details(doc, provider)
+    code = doc.get("code") or raw.get("cnvd_id") or raw.get("cnnvdId")
+    if code and provider in SUPPORTED_PROVIDERS:
+        display_id = norm_cnvd(code) if provider == "cnvd" else norm_cnnvd(code)
+        prefix = "CNVD-" if provider == "cnvd" else "CNNVD-"
+        return f"{provider}:{display_id.removeprefix(prefix)}"
+    return ""
+
+
+def doc_display_id(doc, provider=None):
+    provider = doc_provider(doc, provider)
+    if provider not in SUPPORTED_PROVIDERS:
+        return ""
+    record_id = doc_record_id(doc, provider)
+    prefix = f"{provider}:"
+    if record_id.lower().startswith(prefix):
+        code = record_id.split(":", 1)[1]
+    else:
+        raw = provider_details(doc, provider)
+        code = doc.get("code") or raw.get("cnvd_id") or raw.get("cnnvdId") or record_id
+    return norm_cnvd(code) if provider == "cnvd" else norm_cnnvd(code)
 
 
 def timestamp_text(value):
@@ -91,12 +127,18 @@ def doc_published_text(doc, source=None):
 
 def useful_ref(doc, raw):
     links = []
-    for value in (raw.get("reference_links"), raw.get("referUrl"), raw.get("related_links")):
+    for value in (
+        raw.get("reference_links"),
+        raw.get("referUrl"),
+        raw.get("related_links"),
+        raw.get("officialPatchLink"),
+    ):
         if isinstance(value, list):
             links.extend(value)
         elif value:
             links.append(value)
-    for link in [doc.get("source", {}).get("detail_url"), *links]:
+    source = doc.get("source") if isinstance(doc.get("source"), dict) else {}
+    for link in [source.get("detail_url"), *links]:
         if link and "login" not in str(link) and "regist" not in str(link):
             return link
     return "-"
@@ -115,211 +157,199 @@ function serializeDocs(docs) {
 """
 
 
-def candidate_from_doc(doc):
-    raw = provider_details(doc, "cnvd")
-    cnvd_id = norm_cnvd(doc.get("code") or raw.get("cnvd_id") or str(doc.get("_id", "")).split(":", 1)[-1])
+def candidate_from_news_doc(doc, default_provider=None):
+    provider = doc_provider(doc, default_provider)
+    if provider not in SUPPORTED_PROVIDERS:
+        return None
+    raw = provider_details(doc, provider)
+    record_id = doc_record_id(doc, provider)
+    display_id = doc_display_id(doc, provider)
     cve_ids = doc_cve_ids(doc, raw)
-    products = raw.get("affected_products") or []
-    if isinstance(products, str):
-        products = [products] if products.strip() else []
+    if provider == "cnvd":
+        products = raw.get("affected_products") or []
+        if isinstance(products, str):
+            products = [products] if products.strip() else []
+        title = doc.get("title") or raw.get("title") or display_id
+        severity = doc.get("severity") or raw.get("severity") or doc.get("status")
+        summary = raw.get("description") or ""
+        solution = raw.get("solution") or ""
+    else:
+        products = [
+            product for product in (
+                raw.get("vendorName"),
+                raw.get("productName"),
+                raw.get("affectedVendor"),
+                raw.get("affectedProduct"),
+            ) if product
+        ]
+        title = doc.get("title") or raw.get("vulName") or display_id
+        severity = doc.get("severity") or raw.get("vulLevel") or raw.get("hazardLevel") or doc.get("status")
+        summary = raw.get("vulDesc") or raw.get("vulDetail") or raw.get("productDesc") or ""
+        solution = raw.get("fixStatus") or raw.get("patch") or raw.get("solution") or ""
     return {
-        "candidate_id": cnvd_id,
-        "source": "cnvd",
-        "cnvd_id": cnvd_id,
+        "candidate_id": record_id or display_id,
+        "record_id": record_id,
+        "source": provider,
+        "cnvd_id": display_id,
         "cve_id": cve_ids[0] if cve_ids else None,
-        "search_id": (cve_ids[0] if cve_ids else None) or cnvd_id,
-        "title": doc.get("title") or raw.get("title") or cnvd_id,
-        "severity": doc.get("severity") or raw.get("severity"),
-        "summary": raw.get("description") or "",
-        "solution": raw.get("solution") or "",
+        "search_id": (cve_ids[0] if cve_ids else None) or display_id,
+        "title": title,
+        "severity": severity,
+        "summary": summary,
+        "solution": solution,
         "affected_products": products,
         "references": [useful_ref(doc, raw)],
         "doc": doc,
     }
+
+
+def candidate_from_doc(doc):
+    return candidate_from_news_doc(doc, "cnvd")
 
 
 def candidate_from_cnnvd_doc(doc):
-    raw = provider_details(doc, "cnnvd")
-    cnnvd_id = norm_cnnvd(doc.get("code") or raw.get("cnnvdId") or str(doc.get("_id", "")).split(":", 1)[-1])
-    cve_ids = doc_cve_ids(doc, raw)
-    products = [
-        p for p in [
-            raw.get("vendorName"),
-            raw.get("productName"),
-            raw.get("affectedVendor"),
-            raw.get("affectedProduct"),
-        ] if p
-    ]
-    return {
-        "candidate_id": cnnvd_id,
-        "source": "cnnvd",
-        "cnvd_id": cnnvd_id,
-        "cve_id": cve_ids[0] if cve_ids else None,
-        "search_id": (cve_ids[0] if cve_ids else None) or cnnvd_id,
-        "title": doc.get("title") or raw.get("vulName") or cnnvd_id,
-        "severity": doc.get("severity") or raw.get("vulLevel") or raw.get("hazardLevel") or doc.get("status"),
-        "summary": raw.get("vulDesc") or raw.get("vulDetail") or raw.get("productDesc") or "",
-        "solution": raw.get("fixStatus") or raw.get("patch") or "",
-        "affected_products": products,
-        "references": [useful_ref(doc, raw)],
-        "doc": doc,
-    }
+    return candidate_from_news_doc(doc, "cnnvd")
 
 
 def docs_to_candidates(docs):
-    by_id = {}
-    ordered_ids = []
+    candidates = []
+    seen = set()
     for doc in docs:
-        raw = provider_details(doc, "cnvd")
-        cnvd_id = norm_cnvd(doc.get("code") or raw.get("cnvd_id") or str(doc.get("_id", "")).split(":", 1)[-1])
-        if cnvd_id not in by_id:
-            by_id[cnvd_id] = doc
-            ordered_ids.append(cnvd_id)
-    candidates = [candidate_from_doc(by_id[i]) for i in ordered_ids]
-    for c in candidates:
-        cve = c.get("cve_id") or "no CVE"
-        log.info("  loaded %s (%s): %s", c["cnvd_id"], cve, c["title"][:80])
+        candidate = candidate_from_news_doc(doc)
+        if not candidate:
+            provider = doc_provider(doc)
+            log.debug("Skipping unsupported news provider %r", provider)
+            continue
+        record_id = candidate["record_id"] or candidate["cnvd_id"]
+        if record_id in seen:
+            continue
+        seen.add(record_id)
+        candidates.append(candidate)
+    for candidate in candidates:
+        cve = candidate.get("cve_id") or "no CVE"
+        log.info("  loaded %s (%s): %s", candidate["cnvd_id"], cve, candidate["title"][:80])
     return candidates
 
 
 def docs_to_cnnvd_candidates(docs):
-    by_id = {}
-    ordered_ids = []
-    for doc in docs:
-        raw = provider_details(doc, "cnnvd")
-        vuln_id = norm_cnnvd(doc.get("code") or raw.get("cnnvdId") or str(doc.get("_id", "")).split(":", 1)[-1])
-        if vuln_id not in by_id:
-            by_id[vuln_id] = doc
-            ordered_ids.append(vuln_id)
-    candidates = [candidate_from_cnnvd_doc(by_id[i]) for i in ordered_ids]
-    for c in candidates:
-        cve = c.get("cve_id") or "no CVE"
-        log.info("  loaded %s (%s): %s", c["cnvd_id"], cve, c["title"][:80])
+    candidates = [candidate for candidate in docs_to_candidates(docs) if candidate["source"] == "cnnvd"]
     return candidates
 
 
-def query_cnvd_by_scrape_days(days):
-    days = int(days)
-    if days < 1:
-        sys.exit("scrape_days must be >= 1")
-    log.info("Querying MongoDB (%s.cnvd) observed within last %d day(s)", DB, days)
+def query_news(providers, days=None, record_ids=None):
+    if isinstance(providers, str):
+        providers = (providers,)
+    providers = sorted({str(provider).strip().lower() for provider in providers if str(provider).strip()})
+    providers = [provider for provider in providers if provider in SUPPORTED_PROVIDERS]
+    if not providers or (record_ids is not None and not record_ids):
+        return []
+    cutoff_ms = ""
+    if days is not None:
+        days = int(days)
+        if days < 1:
+            sys.exit("scrape_days must be >= 1")
+        cutoff_ms = str(int((datetime.now(timezone.utc).timestamp() - days * 86400) * 1000))
+    record_ids = [str(record_id) for record_id in (record_ids or [])]
+    log.info(
+        "Querying MongoDB (%s.news) providers=%s days=%s ids=%d",
+        DB,
+        ",".join(provider.upper() for provider in providers),
+        days,
+        len(record_ids),
+    )
     script = (_serialize_dates_js() + """
-const cutoff = new Date(Date.now() - __DAYS__ * 24 * 60 * 60 * 1000);
-const cutoffIso = cutoff.toISOString();
-const docs = db.getSiblingDB("__DB__").cnvd.find({
-  $or: [
-    {observed_at: {$gte: cutoff}},
-    {scraped_at: {$gte: cutoffIso}}
-  ]
+const providers = __PROVIDERS__;
+const recordIds = __RECORD_IDS__;
+const cutoffMs = __CUTOFF_MS__;
+const cutoff = cutoffMs === "" ? null : new Date(Number(cutoffMs));
+const cutoffIso = cutoff ? cutoff.toISOString() : null;
+const query = {"source.provider": {$in: providers}};
+if (recordIds.length) query._id = {$in: recordIds};
+if (cutoff) query.$or = [{observed_at: {$gte: cutoff}}, {scraped_at: {$gte: cutoffIso}}];
+const docs = db.getSiblingDB("__DB__").news.find(query, {
+  code: 1, title: 1, severity: 1, status: 1, cve_ids: 1, cve_codes: 1, details: 1, source: 1,
+  published_at: 1, updated_at: 1, observed_at: 1, disclosure_date: 1, published_time: 1, scraped_at: 1
 }).sort({observed_at: -1, scraped_at: -1, code: -1}).toArray();
 print(JSON.stringify(serializeDocs(docs)));
-""").replace("__DAYS__", str(days)).replace("__DB__", DB)
-    docs = run_mongo(script)
-    if not docs:
-        log.info("  found 0 record(s) in scrape window")
-        return []
-    log.info("  found %d record(s) in scrape window", len(docs))
+""").replace("__PROVIDERS__", json.dumps(providers)).replace(
+        "__RECORD_IDS__", json.dumps(record_ids),
+    ).replace("__CUTOFF_MS__", json.dumps(cutoff_ms)).replace("__DB__", DB)
+    return run_mongo(script)
+
+
+def query_cnvd_by_scrape_days(days):
+    docs = query_news(("cnvd",), days=days)
+    log.info("  found %d CNVD record(s) in scrape window", len(docs))
     return docs_to_candidates(docs)
 
 
 def query_cnvd(ids):
-    cnvd_ids = [norm_cnvd(i) for i in ids]
-    log.info("Querying MongoDB (%s.cnvd) for %d ID(s)", DB, len(cnvd_ids))
-    codes = [i.removeprefix("CNVD-") for i in cnvd_ids]
-    mongo_ids = ["cnvd:" + c for c in codes]
-    script = (_serialize_dates_js() + """
-const ids = __IDS__;
-const codes = __CODES__;
-const mongoIds = __MONGO_IDS__;
-const docs = db.getSiblingDB("__DB__").cnvd.find({
-  $or: [
-    {_id: {$in: mongoIds}},
-    {code: {$in: codes}},
-    {"details.cnvd_id": {$in: ids}},
-    {"details.cnvd.cnvd_id": {$in: ids}}
-  ]
-}).toArray();
-print(JSON.stringify(serializeDocs(docs)));
-""").replace("__IDS__", json.dumps(cnvd_ids)).replace("__CODES__", json.dumps(codes)).replace("__MONGO_IDS__", json.dumps(mongo_ids)).replace("__DB__", DB)
-    docs = run_mongo(script)
-    by_id = {}
-    for doc in docs:
-        raw = provider_details(doc, "cnvd")
-        keys = [
-            raw.get("cnvd_id"),
-            doc.get("code"),
-            str(doc.get("_id", "")).split(":", 1)[-1],
-        ]
-        for key in keys:
-            if key:
-                by_id[norm_cnvd(key)] = doc
-    missing = [i for i in cnvd_ids if i not in by_id]
+    cnvd_ids = [norm_cnvd(value) for value in ids]
+    record_ids = [f"cnvd:{value.removeprefix('CNVD-')}" for value in cnvd_ids]
+    docs = query_news(("cnvd",), record_ids=record_ids)
+    by_record_id = {doc_record_id(doc, "cnvd"): doc for doc in docs}
+    missing = [record_id for record_id in record_ids if record_id not in by_record_id]
     if missing:
-        sys.exit("Not found in vulnerabilities.cnvd: " + ", ".join(missing))
-    return docs_to_candidates([by_id[i] for i in cnvd_ids])
+        missing_ids = [cnvd_ids[record_ids.index(record_id)] for record_id in missing]
+        sys.exit("Not found in vulnerabilities.news (source.provider=cnvd): " + ", ".join(missing_ids))
+    return docs_to_candidates([by_record_id[record_id] for record_id in record_ids])
 
 
 def query_cnnvd(ids):
-    cnnvd_ids = [norm_cnnvd(i) for i in ids]
-    log.info("Querying MongoDB (%s.cnnvd) for %d ID(s)", DB, len(cnnvd_ids))
-    codes = [i.removeprefix("CNNVD-") for i in cnnvd_ids]
-    mongo_ids = ["cnnvd:" + c for c in codes]
-    script = (_serialize_dates_js() + """
-const ids = __IDS__;
-const codes = __CODES__;
-const mongoIds = __MONGO_IDS__;
-const docs = db.getSiblingDB("__DB__").cnnvd.find({
-  $or: [
-    {_id: {$in: mongoIds}},
-    {code: {$in: codes}},
-    {"details.cnnvdId": {$in: ids}},
-    {"details.cnnvd.cnnvdId": {$in: ids}}
-  ]
-}).toArray();
-print(JSON.stringify(serializeDocs(docs)));
-""").replace("__IDS__", json.dumps(cnnvd_ids)).replace("__CODES__", json.dumps(codes)).replace("__MONGO_IDS__", json.dumps(mongo_ids)).replace("__DB__", DB)
-    docs = run_mongo(script)
-    by_id = {}
-    for doc in docs:
-        raw = provider_details(doc, "cnnvd")
-        keys = [
-            raw.get("cnnvdId"),
-            doc.get("code"),
-            str(doc.get("_id", "")).split(":", 1)[-1],
-        ]
-        for key in keys:
-            if key:
-                by_id[norm_cnnvd(key)] = doc
-    missing = [i for i in cnnvd_ids if i not in by_id]
+    cnnvd_ids = [norm_cnnvd(value) for value in ids]
+    record_ids = [f"cnnvd:{value.removeprefix('CNNVD-')}" for value in cnnvd_ids]
+    docs = query_news(("cnnvd",), record_ids=record_ids)
+    by_record_id = {doc_record_id(doc, "cnnvd"): doc for doc in docs}
+    missing = [record_id for record_id in record_ids if record_id not in by_record_id]
     if missing:
-        sys.exit("Not found in vulnerabilities.cnnvd: " + ", ".join(missing))
-    return docs_to_cnnvd_candidates([by_id[i] for i in cnnvd_ids])
+        missing_ids = [cnnvd_ids[record_ids.index(record_id)] for record_id in missing]
+        sys.exit("Not found in vulnerabilities.news (source.provider=cnnvd): " + ", ".join(missing_ids))
+    return docs_to_candidates([by_record_id[record_id] for record_id in record_ids])
+
+
+def record_id_from_match(match):
+    record_id = match.get("record_id") or match.get("_id")
+    if record_id:
+        return str(record_id)
+    provider = str(match.get("source") or match.get("provider") or "").strip().lower()
+    identifier = str(match.get("id") or "").strip()
+    if provider not in SUPPORTED_PROVIDERS or not identifier:
+        return ""
+    if identifier.lower().startswith(f"{provider}:"):
+        return identifier
+    if provider == "cnvd":
+        display_id = norm_cnvd(identifier)
+        return f"cnvd:{display_id.removeprefix('CNVD-')}"
+    display_id = norm_cnnvd(identifier)
+    return f"cnnvd:{display_id.removeprefix('CNNVD-')}"
 
 
 def candidates_from_payload(payload):
     matches = payload.get("matches") or []
     if not matches:
         return []
-    by_source = {"cnvd": [], "cnnvd": []}
-    for match in matches:
-        source = match.get("source")
-        if source in by_source:
-            by_source[source].append(match["id"])
-    candidates = {}
-    for candidate in query_cnvd(by_source["cnvd"]):
-        candidates[("cnvd", candidate["cnvd_id"])] = candidate
-    for candidate in query_cnnvd(by_source["cnnvd"]):
-        candidates[("cnnvd", candidate["cnvd_id"])] = candidate
+    match_record_ids = [record_id_from_match(match) for match in matches]
+    record_ids = list(dict.fromkeys(
+        record_id for record_id in match_record_ids
+        if record_id and record_id.split(":", 1)[0].lower() in SUPPORTED_PROVIDERS
+    ))
+    providers = sorted({record_id.split(":", 1)[0].lower() for record_id in record_ids})
+    docs = query_news(providers, record_ids=record_ids)
+    candidates = {
+        candidate["record_id"]: candidate
+        for candidate in docs_to_candidates(docs)
+        if candidate.get("record_id")
+    }
     ordered = []
-    for match in matches:
-        key = (match.get("source"), match.get("id"))
-        if key in candidates:
-            candidate = candidates[key]
-            candidate["mark"] = match.get("mark")
-            candidate["mark_reasons"] = match.get("mark_reasons") or []
-            candidate["cluster_label"] = match.get("cluster_label") or match.get("matched_software") or ""
-            candidate["matched_software"] = match.get("matched_software") or ""
-            ordered.append(candidate)
+    for match, record_id in zip(matches, match_record_ids):
+        candidate = candidates.get(record_id)
+        if not candidate:
+            continue
+        candidate["mark"] = match.get("mark")
+        candidate["mark_reasons"] = match.get("mark_reasons") or []
+        candidate["cluster_label"] = match.get("cluster_label") or match.get("matched_software") or ""
+        candidate["matched_software"] = match.get("matched_software") or ""
+        ordered.append(candidate)
     return ordered
 
 

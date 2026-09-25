@@ -226,6 +226,8 @@ def search_candidates(candidates, cfg):
                     matched += 1
                     result.update({
                         "candidate_id": candidate["candidate_id"],
+                        "record_id": candidate.get("record_id") or "",
+                        "source": candidate.get("source", "cnvd"),
                         "cnvd_id": candidate["cnvd_id"],
                         "cve_id": candidate.get("cve_id"),
                         "search_id": candidate["search_id"],
