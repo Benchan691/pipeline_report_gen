@@ -98,6 +98,8 @@ def build_weekly_excel(cards, cfg):
     ws = wb.active
     if not rebuild_weekly_sheet(ws, cards):
         sys.exit("Weekly Excel template must contain merged region blocks in column A.")
-    ws["D2"] = "漏洞编号"
+    ws["C2"] = "CVE编号"
+    ws["D2"] = "厂商"
+    ws["E2"] = "影响产品"
     wb.save(cfg["output_weekly_excel"])
     log.info("Weekly Excel saved: %s", cfg["output_weekly_excel"])

@@ -93,7 +93,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(state["cached_cards"], [])
         self.assertEqual(state["missing_candidates"], [candidate])
 
-    def test_weekly_excel_uses_generic_vulnerability_id_heading(self):
+    def test_weekly_excel_uses_generic_vendor_heading(self):
         with tempfile.TemporaryDirectory() as directory:
             output_path = os.path.join(directory, "weekly.xlsx")
             build_weekly_excel([], {
@@ -102,7 +102,7 @@ class PipelineTests(unittest.TestCase):
             })
             workbook = load_workbook(output_path, data_only=True)
 
-        self.assertEqual(workbook.active["D2"].value, "漏洞编号")
+        self.assertEqual(workbook.active["D2"].value, "厂商")
 
     def test_cache_builds_only_missing_cards_and_rewrites_complete_payload(self):
         existing, missing = self.candidate("CNVD-1"), self.candidate("CNVD-2")

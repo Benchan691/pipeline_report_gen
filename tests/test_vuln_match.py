@@ -91,15 +91,15 @@ class VulnerabilityMatchTests(unittest.TestCase):
             {"term": "Java", "term_kind": "label", "cluster_id": "java", "cluster_label": "Java", "cluster_size": 1},
         ]
         docs = [
-            {"code": "1", "title": "Chrome critical", "severity": "Critical", "details": {"cnvd": {}}},
-            {"code": "2", "title": "Chrome high", "severity": "High", "details": {"cnvd": {}}},
-            {"code": "3", "title": "Java high", "severity": "High", "details": {"cnvd": {}}},
-            {"code": "4", "title": "Java medium", "severity": "Medium", "details": {"cnvd": {}}},
+            {"code": "1", "title": "Chrome critical", "severity": "Critical", "source": {"provider": "cnvd"}, "details": {"cnvd": {}}},
+            {"code": "2", "title": "Chrome high", "severity": "High", "source": {"provider": "cnvd"}, "details": {"cnvd": {}}},
+            {"code": "3", "title": "Java high", "severity": "High", "source": {"provider": "cnvd"}, "details": {"cnvd": {}}},
+            {"code": "4", "title": "Java medium", "severity": "Medium", "source": {"provider": "cnvd"}, "details": {"cnvd": {}}},
         ]
         cfg = {"vuln_match_top_n": 3, "vuln_match_max_per_cluster": 1}
 
         with patch("pipeline.vuln_match.software_terms", return_value=terms), \
-             patch("pipeline.vuln_match.docs_for", side_effect=[docs, []]), \
+             patch("pipeline.vuln_match.docs_for", return_value=docs), \
              patch("pipeline.vuln_match.confirm_software_match", side_effect=[
                  {"related": False, "confidence": "low", "reason": "wrong product"},
                  {"related": True, "confidence": "high", "reason": "direct"},
@@ -116,21 +116,21 @@ class VulnerabilityMatchTests(unittest.TestCase):
     def test_post_selection_stops_verifying_once_full(self):
         term = {"term": "Chrome", "term_kind": "label", "cluster_id": "chrome", "cluster_label": "Chrome", "cluster_size": 1}
         docs = [
-            {"code": str(index), "title": f"Chrome {index}", "severity": "High", "details": {"cnvd": {}}}
+            {"code": str(index), "title": f"Chrome {index}", "severity": "High", "source": {"provider": "cnvd"}, "details": {"cnvd": {}}}
             for index in range(1, 4)
         ]
         cfg = {"vuln_match_top_n": 2}
         accepted = {"related": True, "confidence": "high", "reason": "direct"}
 
         with patch("pipeline.vuln_match.software_terms", return_value=[term]), \
-             patch("pipeline.vuln_match.docs_for", side_effect=[docs, []]), \
+             patch("pipeline.vuln_match.docs_for", return_value=docs), \
              patch("pipeline.vuln_match.confirm_software_match", return_value=accepted) as confirm:
             payload, _ = build_filtered_matches(cfg)
 
         self.assertEqual(len(payload["matches"]), 2)
         self.assertEqual(confirm.call_count, 2)
 
-    def test_cluster_scan_reads_both_providers_and_keeps_mongo_ids(self):
+    def test_cluster_scan_reads_all_providers_and_keeps_mongo_ids(self):
         terms = [
             {"term": "Chrome", "term_kind": "label", "cluster_id": "chrome", "cluster_label": "Chrome", "cluster_size": 1},
             {"term": "Firefox", "term_kind": "label", "cluster_id": "firefox", "cluster_label": "Firefox", "cluster_size": 1},
@@ -161,12 +161,12 @@ class VulnerabilityMatchTests(unittest.TestCase):
         accepted = {"related": True, "confidence": "high", "reason": "direct product match"}
 
         with patch("pipeline.vuln_match.software_terms", return_value=terms), \
-             patch("pipeline.vuln_match.docs_for", side_effect=[[cnvd], [cnnvd, unrelated]]) as query, \
+             patch("pipeline.vuln_match.docs_for", return_value=[cnvd, cnnvd, unrelated, {"title": "Chrome", "severity": "High"}]) as query, \
              patch("pipeline.vuln_match.confirm_software_match", return_value=accepted):
             payload, _ = build_filtered_matches({"vuln_match_top_n": 5})
 
-        self.assertEqual(query.call_args_list, [call("cnvd", None), call("cnnvd", None)])
+        self.assertEqual(query.call_args_list, [call(None, None)])
         self.assertEqual({item["record_id"] for item in payload["matches"]}, {
-            "cnvd:2026-1", "cnnvd:2026-2",
+            "cnvd:2026-1", "cnnvd:2026-2", "avd:2026-3",
         })
-        self.assertEqual({item["id"] for item in payload["matches"]}, {"CNVD-2026-1", "CNNVD-2026-2"})
+        self.assertEqual({item["id"] for item in payload["matches"]}, {"CNVD-2026-1", "CNNVD-2026-2", "AVD-2026-3"})

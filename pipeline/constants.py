@@ -25,7 +25,7 @@ LOCALES = {
         "labels": {
             "title": "标题：",
             "cve": "CVE编号",
-            "cnvd": "CNVD编号",
+            "vendor": "厂商",
             "system": "受影响系统",
             "product": "影响产品",
             "threat": "威胁级别",
@@ -44,9 +44,9 @@ LOCALES = {
         "labels": {
             "title": "Title: ",
             "cve": "CVE number",
-            "cnvd": "CNVD Number",
+            "vendor": "Vendor",
             "system": "Affected system",
-            "product": "Affect the product",
+            "product": "Affected product",
             "threat": "Threat level",
             "date": "Release date",
             "hazard": "Vulnerability hazard: ",

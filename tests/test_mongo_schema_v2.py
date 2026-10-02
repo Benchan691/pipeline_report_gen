@@ -35,7 +35,7 @@ class MongoSchemaV2Tests(unittest.TestCase):
         self.assertEqual(candidate["title"], "Chrome vulnerability")
         self.assertEqual(candidate["summary"], "A Chrome bug")
         self.assertEqual(candidate["affected_products"], ["Google Chrome"])
-        self.assertEqual(candidate["references"], ["https://example.test/CNVD-2026-1000"])
+        self.assertEqual(candidate["references"], ["https://example.test/CNVD-2026-1000", "https://example.test/ref"])
         self.assertEqual(doc_cve_ids(doc), ["CVE-2026-1000"])
 
     def test_candidate_from_cnnvd_v2_document(self):
@@ -80,7 +80,7 @@ class MongoSchemaV2Tests(unittest.TestCase):
         }
         self.assertEqual(word_rows(card, "zh")[3][3], "2026-07-20")
 
-    def test_docx_id_label_tracks_the_provider(self):
+    def test_docx_basic_info_is_provider_independent(self):
         cnvd = {
             "source": "cnvd",
             "cnvd_id": "CNVD-2026-1",
@@ -94,9 +94,9 @@ class MongoSchemaV2Tests(unittest.TestCase):
             "cnvd_id": "CNNVD-2026-1",
         }
 
-        self.assertEqual(word_rows(cnvd, "zh")[1][2], "CNVD编号")
-        self.assertEqual(word_rows(cnnvd, "zh")[1][2], "CNNVD编号")
-        self.assertEqual(word_rows(cnnvd, "en")[1][2], "CNNVD Number")
+        self.assertEqual(word_rows(cnvd, "zh")[1][2], "厂商")
+        self.assertEqual(word_rows(cnnvd, "zh")[1][2], "厂商")
+        self.assertEqual(word_rows(cnnvd, "en")[1][2], "Vendor")
 
 
 if __name__ == "__main__":

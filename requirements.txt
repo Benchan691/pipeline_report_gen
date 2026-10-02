@@ -1,6 +1,7 @@
 python-docx
 openpyxl
 python-dotenv
+pymongo>=4.10,<5
 pika
 zimbra-client
 edrive-anyshare==1.0.0

@@ -12,10 +12,9 @@ from pipeline.mongo import (
     doc_provider,
     doc_published_text,
     doc_record_id,
-    provider_details,
     query_news,
 )
-from pipeline.utils import norm_cnvd, norm_cnnvd
+from pipeline.news_schema import news_fields, norm_severity
 
 log = logging.getLogger(__name__)
 
@@ -24,25 +23,11 @@ COMMON_WORDS = {
     "x64", "x86", "bit", "edition", "version", "release", "runtime", "client",
 }
 SHORT_ALLOWED_TERMS = {"pip", "uv"}
-SEVERITY = {
-    "critical": "Critical", "超危": "Critical", "严重": "Critical",
-    "high": "High", "高": "High", "高危": "High", "high-risk": "High",
-    "medium": "Medium", "中": "Medium", "中危": "Medium", "medium-risk": "Medium",
-    "low": "Low", "低": "Low", "低危": "Low", "low-risk": "Low",
-}
 SEVERITY_MARK = {"Critical": 400, "High": 300, "Medium": 200, "Low": 100}
 
 
-def norm_severity(value):
-    text = str(value or "").strip()
-    first = re.split(r"[\s(（]", text, maxsplit=1)[0]
-    return SEVERITY.get(first.lower(), SEVERITY.get(first, text))
-
-
 def norm_id(source, code):
-    if source == "cnvd":
-        return norm_cnvd(code)
-    return norm_cnnvd(code)
+    return doc_display_id({"code": code, "source": {"provider": source}}, source)
 
 
 def clean_term(value):
@@ -81,30 +66,12 @@ def software_terms(path):
 
 
 def docs_for(source, days):
-    return query_news((source,), days=days)
+    return query_news((source,) if source else None, days=days)
 
 
 def searchable_text(source, doc):
-    raw = provider_details(doc, source)
-    if source == "cnvd":
-        products = raw.get("affected_products") or []
-        if isinstance(products, str):
-            products = [products]
-        parts = [
-            doc.get("title"),
-            raw.get("title"),
-            " ".join(products),
-        ]
-    else:
-        parts = [
-            doc.get("title"),
-            raw.get("vulName"),
-            raw.get("productName"),
-            raw.get("vendorName"),
-            raw.get("affectedProduct"),
-            raw.get("affectedVendor"),
-        ]
-    return "\n".join(str(p) for p in parts if p).lower()
+    fields = news_fields(doc, source)
+    return "\n".join([fields["title"], *fields["affected_products"], *fields["vendors"]]).lower()
 
 
 def first_match(terms, text):
@@ -116,22 +83,13 @@ def first_match(terms, text):
 
 
 def doc_fields(source, doc):
-    raw = provider_details(doc, source)
-    if source == "cnvd":
-        products = raw.get("affected_products") or []
-        if isinstance(products, str):
-            products = [products]
-        return {
-            "title": doc.get("title") or raw.get("title") or "",
-            "product": " ".join(str(p) for p in products if p),
-            "vendor": "",
-            "summary": str(raw.get("description") or "")[:500],
-        }
+    fields = news_fields(doc, source)
     return {
-        "title": doc.get("title") or raw.get("vulName") or "",
-        "product": raw.get("productName") or raw.get("affectedProduct") or "",
-        "vendor": raw.get("vendorName") or raw.get("affectedVendor") or "",
-        "summary": str(raw.get("vulDesc") or raw.get("vulDetail") or raw.get("productDesc") or "")[:500],
+        "title": fields["title"],
+        "product": "\n".join(fields["affected_products"]),
+        "vendor": "\n".join(fields["vendors"]),
+        "summary": fields["summary"][:500],
+        "severity": fields["severity"],
     }
 
 
@@ -187,7 +145,7 @@ def match_detail(source, doc, match):
         "title": fields["title"] or doc.get("title") or "",
         "product": fields["product"],
         "vendor": fields["vendor"],
-        "severity": norm_severity(doc.get("severity") or doc.get("status")),
+        "severity": fields["severity"],
         "term": match.get("term") or "",
         "cluster_id": match.get("cluster_id") or "",
         "cluster_label": match.get("cluster_label") or "",
@@ -275,6 +233,7 @@ def make_payload(matches):
     return {
         "cnvd_ids": [m["id"] for m in matches if m["source"] == "cnvd"],
         "cnnvd_ids": [m["id"] for m in matches if m["source"] == "cnnvd"],
+        "record_ids": [m["record_id"] for m in matches if m.get("record_id")],
         "matches": matches,
     }
 
@@ -409,67 +368,67 @@ def build_filtered_matches(cfg):
     pending = []
     seen = set()
     keyword_hits = 0
-    for source in ("cnvd", "cnnvd"):
-        docs = docs_for(source, days)
-        log.info("  Scanning %d %s document(s)", len(docs), source.upper())
-        for doc in docs:
-            provider = doc_provider(doc, source)
-            if provider != source:
-                log.info("  Skipping %s document with provider=%r", source.upper(), provider)
-                continue
-            severity = norm_severity(doc.get("severity") or doc.get("status"))
-            if allowed and severity not in allowed:
-                continue
-            match = first_match(terms, searchable_text(source, doc))
-            if not match:
-                continue
-            detail = match_detail(source, doc, match)
-            record_id = detail["record_id"] or detail["id"]
-            if record_id in seen:
-                log.info("  Duplicate keyword hit skipped: %s (term=%r)", detail["id"], match["term"])
-                continue
-            seen.add(record_id)
-            keyword_hits += 1
-            log.info(
-                "  Keyword hit %s [%s] term=%r (%s) cluster=%s (%s, size=%s) product=%r vendor=%r title=%s",
-                detail["id"],
-                detail["severity"],
-                detail["term"],
-                detail["term_kind"],
-                detail["cluster_id"],
-                detail["cluster_label"],
-                detail["cluster_size"],
-                detail["product"],
-                detail["vendor"],
-                detail["title"],
-            )
-            published = doc_date(doc)
-            mark, reasons = mark_match(severity, match, published)
-            log.info(
-                "  Marked %s term=%r cluster=%s mark=%d",
-                detail["id"],
-                detail["term"],
-                detail["cluster_label"],
-                mark,
-            )
-            pending.append({
-                "doc": doc,
-                "match": match,
-                "item": {
-                    "source": source,
-                    "id": detail["id"],
-                    "record_id": record_id,
-                    "severity": severity,
-                    "mark": mark,
-                    "mark_reasons": reasons,
-                    "matched_software": match["term"],
-                    "cluster_id": match["cluster_id"],
-                    "cluster_label": match["cluster_label"],
-                    "cluster_size": match["cluster_size"],
-                    "published": published,
-                    "title": doc.get("title") or "",
-                },
-            })
+    docs = docs_for(None, days)
+    log.info("  Scanning %d document(s) across all news providers", len(docs))
+    for doc in docs:
+        source = doc_provider(doc)
+        if not source or not doc_record_id(doc, source):
+            continue
+        severity = news_fields(doc, source)["severity"]
+        if allowed and severity not in allowed:
+            continue
+        match = first_match(terms, searchable_text(source, doc))
+        if not match:
+            continue
+        detail = match_detail(source, doc, match)
+        record_id = detail["record_id"] or detail["id"]
+        if record_id in seen:
+            log.info("  Duplicate keyword hit skipped: %s (term=%r)", detail["id"], match["term"])
+            continue
+        seen.add(record_id)
+        keyword_hits += 1
+        log.info(
+            "  Keyword hit %s [%s] term=%r (%s) cluster=%s (%s, size=%s) product=%r vendor=%r title=%s",
+            detail["id"],
+            detail["severity"],
+            detail["term"],
+            detail["term_kind"],
+            detail["cluster_id"],
+            detail["cluster_label"],
+            detail["cluster_size"],
+            detail["product"],
+            detail["vendor"],
+            detail["title"],
+        )
+        published = doc_date(doc)
+        mark, reasons = mark_match(severity, match, published)
+        log.info(
+            "  Marked %s term=%r cluster=%s mark=%d",
+            detail["id"],
+            detail["term"],
+            detail["cluster_label"],
+            mark,
+        )
+        pending.append({
+            "doc": doc,
+            "match": match,
+            "item": {
+                "source": source,
+                "id": detail["id"],
+                "record_id": record_id,
+                "severity": severity,
+                "mark": mark,
+                "mark_reasons": reasons,
+                "matched_software": match["term"],
+                "cluster_id": match["cluster_id"],
+                "cluster_label": match["cluster_label"],
+                "cluster_size": match["cluster_size"],
+                "published": published,
+                "title": detail["title"],
+                "product": detail["product"],
+                "vendor": detail["vendor"],
+            },
+        })
     ranked, llm_rejected, cluster_cap_skipped = select_confirmed_matches(
         pending, cfg, top_n, max_per_cluster,
     )

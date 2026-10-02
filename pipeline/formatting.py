@@ -1,6 +1,7 @@
 from pipeline.constants import DEFAULT_REPORT_LANG, LOCALES
 from pipeline.mongo import doc_published_text, provider_details
-from pipeline.utils import one_line, val
+from pipeline.news_schema import doc_cve_ids, news_fields
+from pipeline.utils import val
 
 
 def localized(card, field, lang):
@@ -49,7 +50,15 @@ def category(card):
 
 
 def product_text(card):
-    return val(card.get("affected_products"))
+    return val(card.get("affected_products") or news_fields(card.get("doc") or {}, card.get("source"))["affected_products"])
+
+
+def vendor_text(card):
+    return val(card.get("vendors") or card.get("vendor") or news_fields(card.get("doc") or {}, card.get("source"))["vendors"])
+
+
+def cve_text(card):
+    return val(card.get("cve_ids") or doc_cve_ids(card.get("doc") or {}) or card.get("cve_id"))
 
 
 def asset_text(card):
@@ -58,8 +67,7 @@ def asset_text(card):
 
 def word_rows(card, lang):
     labels = LOCALES[lang]["labels"]
-    id_label = "CNNVD编号" if card.get("source") == "cnnvd" and lang == "zh" else ("CNNVD Number" if card.get("source") == "cnnvd" else labels["cnvd"])
-    products = card.get("affected_products") or []
+    products = product_text(card)
     what_happened = localized(card, "what_happened", lang)
     why_matters = localized(card, "why_matters", lang)
     hazard = what_happened or "-"
@@ -67,8 +75,8 @@ def word_rows(card, lang):
         hazard += "\n" + why_matters
     return [
         (labels["title"] + val(localized(card, "title", lang)),),
-        (labels["cve"], card.get("cve_id") or "-", id_label, card["cnvd_id"]),
-        (labels["system"], asset_text(card), labels["product"], one_line(products)),
+        (labels["cve"], cve_text(card), labels["vendor"], vendor_text(card)),
+        (labels["system"], asset_text(card), labels["product"], products),
         (labels["threat"], format_severity(card.get("severity") or card_raw(card).get("severity"), lang), labels["date"], val(display_date(card_date(card)))),
         (labels["hazard"] + hazard,),
         (labels["scope"] + val(products),),
@@ -79,4 +87,4 @@ def word_rows(card, lang):
 
 
 def weekly_row(card):
-    return ["", "", card.get("cve_id") or "-", card["cnvd_id"], product_text(card), localized(card, "title", DEFAULT_REPORT_LANG), format_severity(card.get("severity") or card_raw(card).get("severity"), DEFAULT_REPORT_LANG)]
+    return ["", "", cve_text(card), vendor_text(card), product_text(card), localized(card, "title", DEFAULT_REPORT_LANG), format_severity(card.get("severity") or card_raw(card).get("severity"), DEFAULT_REPORT_LANG)]

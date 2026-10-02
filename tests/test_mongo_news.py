@@ -57,7 +57,7 @@ def cnnvd_doc():
 
 
 class MongoUnifiedNewsTests(unittest.TestCase):
-    def test_provider_mapping_uses_news_schema_and_skips_other_sources(self):
+    def test_provider_mapping_uses_news_schema_for_all_sources(self):
         avd_doc = {
             "_id": "avd:2026-75604",
             "source": {"provider": "avd"},
@@ -66,24 +66,25 @@ class MongoUnifiedNewsTests(unittest.TestCase):
 
         candidates = docs_to_candidates([avd_doc, cnvd_doc(), cnnvd_doc()])
 
-        self.assertEqual([candidate["source"] for candidate in candidates], ["cnvd", "cnnvd"])
-        cnvd = candidates[0]
+        self.assertEqual([candidate["source"] for candidate in candidates], ["avd", "cnvd", "cnnvd"])
+        cnvd = candidates[1]
         self.assertEqual(cnvd["record_id"], "cnvd:2026-75604")
         self.assertEqual(cnvd["candidate_id"], "cnvd:2026-75604")
         self.assertEqual(cnvd["cnvd_id"], "CNVD-2026-75604")
         self.assertEqual(cnvd["cve_id"], "CVE-2026-75604")
         self.assertEqual(cnvd["affected_products"], ["Next.js"])
         self.assertEqual(cnvd["severity"], "High")
-        self.assertEqual(cnvd["references"], ["https://cnvd.example/detail/CNVD-2026-75604"])
+        self.assertEqual(cnvd["references"], ["https://cnvd.example/detail/CNVD-2026-75604", "https://vendor.example/advisory"])
         self.assertEqual(cnvd["solution"], "Upgrade to the fixed release.")
 
-        cnnvd = candidates[1]
+        cnnvd = candidates[2]
         self.assertEqual(cnnvd["record_id"], "cnnvd:2026-39774431")
         self.assertEqual(cnnvd["source"], "cnnvd")
         self.assertEqual(cnnvd["cnvd_id"], "CNNVD-2026-39774431")
-        self.assertEqual(cnnvd["affected_products"], ["Example Vendor", "Example Product"])
-        self.assertEqual(cnnvd["severity"], "高危")
-        self.assertEqual(cnnvd["references"], ["https://cnnvd.example/detail/CNNVD-2026-39774431"])
+        self.assertEqual(cnnvd["affected_products"], ["Example Product"])
+        self.assertEqual(cnnvd["vendors"], ["Example Vendor"])
+        self.assertEqual(cnnvd["severity"], "High")
+        self.assertEqual(cnnvd["references"], ["https://cnnvd.example/detail/CNNVD-2026-39774431", "https://vendor.example/patch"])
         self.assertEqual(cnnvd["solution"], "Install the released patch.")
 
     def test_query_targets_news_filters_providers_and_keeps_date_window(self):
@@ -96,14 +97,13 @@ class MongoUnifiedNewsTests(unittest.TestCase):
 
         script = run_mongo.call_args.args[0]
         self.assertIn(".news.find(query", script)
-        self.assertIn('const providers = ["cnnvd", "cnvd"];', script)
-        self.assertIn('const query = {"source.provider": {$in: providers}};', script)
+        self.assertIn('const providers = ["avd", "cnnvd", "cnvd"];', script)
+        self.assertIn('const query = {"source.provider": providers === null ? {$type: "string", $nin: [""]} : {$in: providers}};', script)
         self.assertIn('const recordIds = ["cnvd:2026-75604", "cnnvd:2026-39774431"];', script)
         self.assertIn("query._id = {$in: recordIds};", script)
         self.assertIn("query.$or = [{observed_at: {$gte: cutoff}}, {scraped_at: {$gte: cutoffIso}}]", script)
         self.assertNotIn(".cnvd.find", script)
         self.assertNotIn(".cnnvd.find", script)
-        self.assertNotIn("avd", script)
         self.assertRegex(script, r'const cutoffMs = "\d+";')
 
     def test_plain_scrape_days_and_explicit_ids_remain_cnvd_only(self):
@@ -123,7 +123,7 @@ class MongoUnifiedNewsTests(unittest.TestCase):
         self.assertIn("query._id = {$in: recordIds};", explicit_script)
         self.assertIn('const cutoffMs = "";', explicit_script)
 
-    def test_cluster_payload_refetches_by_canonical_id_and_ignores_other_provider(self):
+    def test_cluster_payload_refetches_every_provider_by_canonical_id(self):
         docs = [cnvd_doc(), cnnvd_doc(), {
             "_id": "avd:2026-75604",
             "code": "2026-75604",
@@ -142,15 +142,15 @@ class MongoUnifiedNewsTests(unittest.TestCase):
             candidates = candidates_from_payload(payload)
 
         self.assertEqual([candidate["record_id"] for candidate in candidates], [
-            "cnnvd:2026-39774431", "cnvd:2026-75604",
+            "cnnvd:2026-39774431", "cnvd:2026-75604", "avd:2026-75604",
         ])
         self.assertEqual([candidate["cnvd_id"] for candidate in candidates], [
-            "CNNVD-2026-39774431", "CNVD-2026-75604",
+            "CNNVD-2026-39774431", "CNVD-2026-75604", "AVD-2026-75604",
         ])
         script = run_mongo.call_args.args[0]
         self.assertIn(".news.find(query", script)
-        self.assertIn('const providers = ["cnnvd", "cnvd"];', script)
-        self.assertIn('const recordIds = ["cnnvd:2026-39774431", "cnvd:2026-75604"];', script)
+        self.assertIn('const providers = null;', script)
+        self.assertIn('const recordIds = ["cnnvd:2026-39774431", "cnvd:2026-75604", "avd:2026-75604"];', script)
         self.assertIn("query._id = {$in: recordIds};", script)
         self.assertNotIn(".cnvd.find", script)
         self.assertNotIn(".cnnvd.find", script)

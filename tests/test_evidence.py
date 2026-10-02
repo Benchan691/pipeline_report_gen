@@ -41,7 +41,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("how_to_respond", evidence_system)
         self.assertIn("supplied source URL", evidence_system)
         self.assertEqual(json.loads(evidence_user)["task_type"], "how_to_respond")
-        self.assertIn("Do not translate CVE/CNVD IDs", translation_system)
+        self.assertIn("Do not translate vulnerability/advisory IDs", translation_system)
         self.assertEqual(json.loads(translation_user)["how_to_respond"], "升级到 1.2.3")
 
     def test_merge_and_translate_cards_preserves_bilingual_fields(self):

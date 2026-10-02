@@ -1,6 +1,6 @@
-# CNVD Evidence-Card Report Pipeline
+# Vulnerability Evidence-Card Report Pipeline
 
-Generate a weekly vulnerability report from CNVD/CNNVD data. The pipeline produces:
+Generate a weekly vulnerability report from the unified MongoDB `vulnerabilities.news` collection. The pipeline produces:
 
 - Chinese and English DOCX reports
 - A Chinese weekly XLSX disclosure workbook
@@ -29,7 +29,7 @@ The full pipeline selects vulnerabilities, searches for evidence, builds both DO
 
 ## How it works
 
-1. Optionally match recent CNVD/CNNVD records to the software-cluster summary.
+1. Optionally match recent records from every scraper provider to the software-cluster summary.
 2. Load the selected records from MongoDB.
 3. Search SearXNG or Firecrawl for each vulnerability.
 4. Extract source-grounded evidence in Chinese with the configured AI server.
@@ -46,6 +46,7 @@ Run these from the repository root.
 | Command | What it does |
 | --- | --- |
 | `.venv/bin/python main.py` | Run the complete report pipeline and send the output ZIP to Zimbra. |
+| `.venv/bin/python main.py --local-only` | Run the complete report pipeline and save the dated output folder locally without sending email or publishing a CloudAMQP wake-up. |
 | `.venv/bin/python main.py --cluster-match` | Match vulnerabilities to software clusters only; does not search or write reports. |
 | `.venv/bin/python main.py --translate` | Add or refresh English translations in the existing evidence JSON. |
 | `.venv/bin/python main.py --build-reports` | Build reports from existing evidence JSON; does not search or send transfer email. |
@@ -68,8 +69,9 @@ For `--send-transfer` and `--send-email`, pass either a run-folder name under `o
 | Setting | Purpose |
 | --- | --- |
 | `scrape_days` | Number of recently observed CNVD records to load from `vulnerabilities.news` when `cnvd_ids` is not set. |
+| `mongo_uri` | MongoDB connection URI for the `vulnerabilities` database. Set `MONGODB_URI` in `.env` to override it, especially when using credentials. |
 | `cnvd_ids` | Optional CNVD ID list; resolves `cnvd:<id>` records from `vulnerabilities.news` and overrides `scrape_days`. |
-| `use_filtered_vuln_ids` | Enable software-cluster matching against recent CNVD and CNNVD records in `vulnerabilities.news`. |
+| `use_filtered_vuln_ids` | Enable software-cluster matching against all providers in `vulnerabilities.news`, identified by `source.provider`. |
 | `software_cluster_csv` | Sorted software-cluster summary used for matching. |
 | `search_provider` | `firecrawl` or `searxng`. |
 | `firecrawl_retries` | Max Firecrawl attempts on failure (default `5`). |
@@ -82,6 +84,10 @@ For `--send-transfer` and `--send-email`, pass either a run-folder name under `o
 Output filenames come from `output_docx` and `output_weekly_excel`. With `output_date_prefix: true` (the default), the pipeline prefixes each file with the report date range.
 
 The pipeline always creates Chinese and English DOCX reports. The XLSX workbook is Chinese and leaves `是否涉及` blank for human review.
+
+Both report formats use CVE IDs, vendor, and affected product as basic information. Missing source fields are shown as `-`; bulletins with several CVEs retain the full list. Mongo `_id` remains the record identity in shortlists and evidence caches. The legacy `cnvd_id` field retains the readable advisory identifier for compatibility.
+
+Filtering has no fixed provider list. Shared mapping handles CNVD/CNNVD, AVD, CVE/NVD, GitHub advisories, HKCERT/GovCERT, HPE, Huawei, MSRC, Qianxin, and Zimbra payloads; other providers use common product, vendor, description, remediation, and reference fields. Nested affected packages and vulnerable CPEs are normalized for matching. Keyword candidates still require AI confirmation, and configured severity and date filters apply to every provider. Records without a severity do not pass a configured severity filter.
 
 ### .env
 
@@ -98,7 +104,7 @@ Copy [`.env.example`](.env.example) to `.env`, then supply the credentials neede
 ## Services and dependencies
 
 - Python packages from [requirements.txt](requirements.txt)
-- `mongosh` in `PATH`
+- A reachable MongoDB server at `mongo_uri` in `config.json` (or `MONGODB_URI` in `.env`)
 - `curl` and `openssl` in `PATH` for eDrive login and uploads
 - An OpenAI-compatible local AI server (the configured server must support `chat_template_kwargs`)
 - SearXNG when `search_provider` is `searxng`, or a Firecrawl API key when using Firecrawl
@@ -108,6 +114,7 @@ Copy [`.env.example`](.env.example) to `.env`, then supply the credentials neede
 - [main.py](main.py) — CLI entry point
 - [pipeline/cli.py](pipeline/cli.py) — command orchestration
 - [pipeline/vuln_match.py](pipeline/vuln_match.py) — software-cluster matching
+- [pipeline/news_schema.py](pipeline/news_schema.py) — shared scraper field mapping
 - [pipeline/search.py](pipeline/search.py) — SearXNG and Firecrawl search
 - [pipeline/evidence.py](pipeline/evidence.py) — evidence extraction, translation, and cache handling
 - [pipeline/docx_report.py](pipeline/docx_report.py) — DOCX report generation

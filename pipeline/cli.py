@@ -185,10 +185,15 @@ def send_email_from_folder(cfg, folder_path):
 
 
 def build_arg_parser():
-    parser = argparse.ArgumentParser(description="Generate CNVD-first evidence-card DOCX and XLSX reports.")
+    parser = argparse.ArgumentParser(description="Generate vulnerability evidence-card DOCX and XLSX reports.")
     parser.add_argument("--self-test", action="store_true", help="run the local test suite without MongoDB, SearXNG, or AI")
     parser.add_argument("--translate", action="store_true", help="translate existing evidence JSON to English fields only")
     parser.add_argument("--build-reports", action="store_true", help="build reports from existing evidence JSON without search or email")
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="run the full report pipeline and save its output folder without sending a transfer email or CloudAMQP wake-up",
+    )
     parser.add_argument(
         "--cluster-match",
         action="store_true",
@@ -224,6 +229,7 @@ def exclusive_action_flags(args):
     return [
         args.translate,
         args.build_reports,
+        args.local_only,
         args.cluster_match,
         bool(args.send_email),
         args.send_transfer is not None,
@@ -244,7 +250,7 @@ def main():
     actions = exclusive_action_flags(args)
     if sum(bool(action) for action in actions) > 1:
         sys.exit(
-            "Choose only one action: --translate, --build-reports, --cluster-match, "
+            "Choose only one action: --translate, --build-reports, --local-only, --cluster-match, "
             "--send-email, --send-transfer, or --receive-transfer"
         )
 
@@ -294,11 +300,14 @@ def main():
     elif args.build_reports:
         check_dependencies()
         log.info("Building reports from existing evidence")
+    elif args.local_only:
+        check_dependencies()
+        log.info("Starting local-only vulnerability report pipeline")
     elif args.cluster_match:
         log.info("Running cluster match only")
     else:
         check_dependencies()
-        log.info("Starting CNVD report pipeline")
+        log.info("Starting vulnerability report pipeline")
         try:
             require_zimbra_config(cfg)
         except ValueError as exc:
@@ -342,6 +351,9 @@ def main():
     write_evidence(cfg["evidence_json"], candidates, search_results, evidence_cards, cards)
 
     paths = build_report_outputs(cfg, cards)
-    send_transfer_from_folder(cfg, cfg["output_dir"])
-    log.info("Transfer email sent for output folder %s", cfg["output_dir"])
+    if args.local_only:
+        log.info("Local report folder created: %s", cfg["output_dir"])
+    else:
+        send_transfer_from_folder(cfg, cfg["output_dir"])
+        log.info("Transfer email sent for output folder %s", cfg["output_dir"])
     log.info("Done. Outputs: %s, %s, %s", *paths)

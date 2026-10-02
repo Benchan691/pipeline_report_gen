@@ -36,6 +36,9 @@ def parse_firecrawl_api_keys(value):
 
 
 def _apply_env_overrides(cfg):
+    cfg["mongo_uri"] = _env_or_cfg(
+        cfg, "MONGODB_URI", "mongo_uri", "mongodb://localhost:27017/",
+    )
     keys = parse_firecrawl_api_keys(_env_or_cfg(cfg, "FIRECRAWL_API_KEY", "firecrawl_api_key"))
     cfg["firecrawl_api_keys"] = keys
     cfg["firecrawl_api_key"] = keys[0] if keys else ""

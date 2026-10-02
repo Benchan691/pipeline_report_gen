@@ -1,1 +1,1 @@
-"""CNVD/CNNVD vulnerability report pipeline."""
+"""Vulnerability report pipeline for unified scraper news."""

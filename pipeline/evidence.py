@@ -125,6 +125,9 @@ def normalize_card(raw, result, candidate):
     card["record_id"] = candidate.get("record_id") or ""
     card["source"] = candidate.get("source", "cnvd")
     card["cve_id"] = candidate.get("cve_id")
+    card["cve_ids"] = candidate.get("cve_ids") or ([candidate["cve_id"]] if candidate.get("cve_id") else [])
+    card["vendors"] = candidate.get("vendors") or []
+    card["affected_products"] = candidate.get("affected_products") or []
     card["search_id"] = candidate["search_id"]
     card["confidence"] = card["confidence"] if card["confidence"] in CONFIDENCE else "low"
     for key in ("affected_versions", "fixed_versions", "references"):
@@ -145,14 +148,14 @@ def evidence_prompt(result, candidate):
         "Return one JSON object only—no Markdown, explanation, or card wrapper—with exactly these keys: "
         "cnvd_id, cve_id, search_id, title, what_happened, why_matters, how_to_respond, affected_versions, "
         "fixed_versions, cvss_score, cvss_vector, references, confidence. "
-        "Use empty strings, empty arrays, or null for unsupported values. Keep versions, CVE/CNVD IDs, CVSS vectors, "
+        "Use empty strings, empty arrays, or null for unsupported values. Keep versions, vulnerability/advisory IDs, CVSS vectors, "
         "and URLs exact. references may contain only the supplied source URL. "
         "Set confidence to high for direct, explicit evidence; medium for relevant but incomplete evidence; otherwise low."
     )
     user = {
         "required_keys": EVIDENCE_KEYS,
         "task_type": result["task_type"],
-        "candidate": {k: candidate.get(k) for k in ("cnvd_id", "cve_id", "search_id", "title", "severity", "summary")},
+        "candidate": {k: candidate.get(k) for k in ("record_id", "source", "cnvd_id", "cve_id", "cve_ids", "vendors", "affected_products", "search_id", "title", "severity", "summary")},
         "source": {k: result.get(k) for k in ("url", "title", "snippet", "page_content")},
     }
     return system, json.dumps(user, ensure_ascii=False)
@@ -161,7 +164,7 @@ def evidence_prompt(result, candidate):
 def translation_prompt(card):
     system = (
         "Translate the supplied cybersecurity report fields from Simplified Chinese to clear, concise English. "
-        "Preserve meaning and certainty; do not add remediation, impact, or context. Do not translate CVE/CNVD IDs, "
+        "Preserve meaning and certainty; do not add remediation, impact, or context. Do not translate vulnerability/advisory IDs, "
         "CVSS vectors, version strings, URLs, product names, vendor names, code, or commands. "
         "Return one JSON object only—no Markdown or explanation—with exactly these string keys: title, what_happened, "
         "why_matters, how_to_respond. Preserve empty fields as empty strings."
@@ -295,6 +298,8 @@ def merge_cards(candidates, evidence_cards):
             "cnvd_id": c["cnvd_id"],
             "source": c.get("source", "cnvd"),
             "cve_id": c.get("cve_id"),
+            "cve_ids": c.get("cve_ids") or ([c["cve_id"]] if c.get("cve_id") else []),
+            "vendors": c.get("vendors") or [],
             "search_id": c["search_id"],
             "title": localized["title"],
             "severity": c.get("severity"),
@@ -380,12 +385,14 @@ def matching_evidence_cards(candidate, evidence_cards):
         exact = [card for card in evidence_cards if card.get("record_id") == record_id]
         if exact:
             return exact
-        legacy = [
-            card for card in evidence_cards
-            if not card.get("record_id") and card.get("cnvd_id") == display_id
-        ]
-        return legacy
-    return [card for card in evidence_cards if card.get("cnvd_id") == display_id]
+    provider = candidate.get("source") or "cnvd"
+    return [
+        card for card in evidence_cards
+        if not card.get("record_id") and card.get("cnvd_id") == display_id
+        and (card.get("source") == provider or (
+            not card.get("source") and provider in ("cnvd", "cnnvd")
+        ))
+    ]
 
 
 def hydrate_cached_card(candidate, cached_card, warned=None):
@@ -394,12 +401,14 @@ def hydrate_cached_card(candidate, cached_card, warned=None):
     card["cnvd_id"] = candidate["cnvd_id"]
     card["source"] = candidate.get("source", "cnvd")
     card.setdefault("cve_id", candidate.get("cve_id"))
+    card["cve_ids"] = candidate.get("cve_ids") or card.get("cve_ids") or ([card["cve_id"]] if card.get("cve_id") else [])
+    card["vendors"] = candidate.get("vendors") or card.get("vendors") or []
     card.setdefault("search_id", candidate["search_id"])
     card.setdefault("title", candidate["title"])
     card.setdefault("what_happened", candidate.get("summary") or "")
     card.setdefault("why_matters", "")
     card.setdefault("how_to_respond", candidate.get("solution") or "")
-    card.setdefault("affected_products", candidate.get("affected_products") or [])
+    card["affected_products"] = candidate.get("affected_products") or card.get("affected_products") or []
     card.setdefault("cluster_label", candidate.get("cluster_label") or "")
     card.setdefault("matched_software", candidate.get("matched_software") or "")
     card.setdefault("references", candidate.get("references") or [])
@@ -435,26 +444,18 @@ def inspect_existing_evidence(path, candidates):
     warned = {"missing_en": False}
     cached_cards = []
     missing_candidates = []
-    cached_record_ids = set()
-    cached_display_ids = set()
     for candidate in candidates:
         cached_matches = matching_evidence_cards(candidate, cards)
         cached = cached_matches[0] if cached_matches else None
         if cached and cached_card_is_usable(cached):
             cached_cards.append(hydrate_cached_card(candidate, cached, warned))
-            if candidate.get("record_id"):
-                cached_record_ids.add(candidate["record_id"])
-            cached_display_ids.add(candidate["cnvd_id"])
         else:
             missing_candidates.append(candidate)
 
     def belongs_to_cached_candidate(item):
         if not isinstance(item, dict):
             return False
-        record_id = item.get("record_id")
-        if record_id:
-            return record_id in cached_record_ids
-        return item.get("cnvd_id") in cached_display_ids
+        return any(matching_evidence_cards(card, [item]) for card in cached_cards)
 
     search_results = [item for item in payload.get("search_results", []) if belongs_to_cached_candidate(item)]
     source_evidence_cards = [item for item in payload.get("source_evidence_cards", []) if belongs_to_cached_candidate(item)]
