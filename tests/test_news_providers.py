@@ -204,9 +204,14 @@ class NewsProviderTests(unittest.TestCase):
             xlsx = str(Path(directory) / "report.xlsx")
             build_docx([card], {"docx_template": "templates/report.docx"}, "en", docx)
             build_weekly_excel([card], {"weekly_excel_template": "templates/weekly_disclosure.xlsx", "output_weekly_excel": xlsx})
-            table = Document(docx).tables[0]
-            self.assertEqual([cell.text for cell in table.rows[1].cells], ["CVE number", "CVE-2026-1234", "Vendor", "Vendor"])
-            self.assertEqual(table.rows[2].cells[3].text, "Product")
+            report = Document(docx)
+            self.assertEqual(report.paragraphs[0].style.name, "Title")
+            self.assertEqual(report.tables[0].rows[1].cells[2].text, "CVE-2026-1234")
+            metadata = report.tables[1]
+            self.assertEqual([cell.text for cell in metadata.rows[0].cells[:2]], ["CVE", "CVE-2026-1234"])
+            self.assertEqual([cell.text for cell in metadata.rows[1].cells[:2]], ["Vendor", "Vendor"])
+            self.assertEqual(metadata.rows[2].cells[1].text, "Product")
+            self.assertIn("Recommended response", [p.text for p in report.paragraphs])
             ws = load_workbook(xlsx).active
             self.assertEqual([ws.cell(2, col).value for col in range(3, 6)], ["CVE编号", "厂商", "影响产品"])
             self.assertEqual([ws.cell(3, col).value for col in range(3, 6)], ["CVE-2026-1234", "Vendor", "Product"])

@@ -1,6 +1,5 @@
 from pipeline.constants import DEFAULT_REPORT_LANG, LOCALES
-from pipeline.mongo import doc_published_text, provider_details
-from pipeline.news_schema import doc_cve_ids, news_fields
+from pipeline.news_schema import doc_cve_ids, doc_published_text, news_fields, provider_details
 from pipeline.utils import val
 
 
@@ -50,10 +49,14 @@ def category(card):
 
 
 def product_text(card):
+    if isinstance(card.get("report_identity"), dict):
+        return val(card["report_identity"].get("product"))
     return val(card.get("affected_products") or news_fields(card.get("doc") or {}, card.get("source"))["affected_products"])
 
 
 def vendor_text(card):
+    if isinstance(card.get("report_identity"), dict):
+        return val(card["report_identity"].get("vendor"))
     return val(card.get("vendors") or card.get("vendor") or news_fields(card.get("doc") or {}, card.get("source"))["vendors"])
 
 

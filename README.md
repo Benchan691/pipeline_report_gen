@@ -73,6 +73,12 @@ For `--send-transfer` and `--send-email`, pass either a run-folder name under `o
 | `cnvd_ids` | Optional CNVD ID list; resolves `cnvd:<id>` records from `vulnerabilities.news` and overrides `scrape_days`. |
 | `use_filtered_vuln_ids` | Enable software-cluster matching against all providers in `vulnerabilities.news`, identified by `source.provider`. |
 | `software_cluster_csv` | Sorted software-cluster summary used for matching. |
+| `vuln_match_top_n` | Maximum accepted matches per run (default `20`; this configuration uses `30`). |
+| `vuln_match_max_rejected` | Maximum AI-rejected candidates per run. `0` means unlimited (default); this configuration uses `100`. |
+| `vuln_match_max_per_cluster` | Maximum accepted matches per software cluster. `0` means unlimited. |
+| `vuln_match_enable_thinking` | Enable thinking for AI software-cluster confirmation (`true` by default). Set to `false` to disable it. |
+| `vuln_match_thinking_budget_tokens` | Thinking-token budget for software-cluster confirmation; ignored when thinking is disabled. |
+| `report_identity_batch_size` | Number of unique vendor/product summaries sent to AI together (default `8`). Unchanged summaries are cached. |
 | `search_provider` | `firecrawl` or `searxng`. |
 | `firecrawl_retries` | Max Firecrawl attempts on failure (default `5`). |
 | `firecrawl_retry_wait` | Seconds to wait between Firecrawl retries (default `30`). |
@@ -81,11 +87,17 @@ For `--send-transfer` and `--send-email`, pass either a run-folder name under `o
 | `output_root` | Parent directory for timestamped report folders. |
 | `email_title`, `email_body` | Subject suffix and body for the final eDrive share-link notification. |
 
+Use JSON booleans (`true` or `false`, without quotes) for `vuln_match_enable_thinking`. Evidence extraction and English translation keep thinking disabled.
+
+AI confirmation checks candidates from highest score to lowest and stops when either the accepted or rejected limit is reached, or candidates run out. Candidates skipped because a cluster is full do not count as AI rejections. Set `vuln_match_max_rejected` to a non-negative integer. The pipeline continues with the accepted records collected so far, which may be fewer than `vuln_match_top_n`; if none were accepted, it exits without building reports.
+
 Output filenames come from `output_docx` and `output_weekly_excel`. With `output_date_prefix: true` (the default), the pipeline prefixes each file with the report date range.
 
-The pipeline always creates Chinese and English DOCX reports. The XLSX workbook is Chinese and leaves `是否涉及` blank for human review.
+The pipeline always creates Chinese and English DOCX reports. Word reports contain a linked overview, compact basic information, clearly separated explanation/impact/version/response sections, and clickable source links. The XLSX workbook keeps the regional review blocks and leaves `是否涉及` blank for human review, with a dropdown, frozen headings and readable row shading.
 
-Both report formats use CVE IDs, vendor, and affected product as basic information. Missing source fields are shown as `-`; bulletins with several CVEs retain the full list. Mongo `_id` remains the record identity in shortlists and evidence caches. The legacy `cnvd_id` field retains the readable advisory identifier for compatibility.
+Before building reports, AI summarizes one vendor and one canonical product name from the supplied title, product/vendor fields and matched software. Product labels omit versions, builds and edition lists; digits belonging to actual brands such as Microsoft 365 remain. Labels are cached under `report_identity` and refreshed when their inputs or model change. Invalid or unavailable AI responses fall back to concise source labels. The original product/vendor lists and affected versions remain in the evidence cache; Word still shows affected versions separately.
+
+Both report formats retain the complete CVE list. Missing source fields are shown as `-`. Mongo `_id` remains the record identity in shortlists and evidence caches. The legacy `cnvd_id` field retains the readable advisory identifier for compatibility.
 
 Filtering has no fixed provider list. Shared mapping handles CNVD/CNNVD, AVD, CVE/NVD, GitHub advisories, HKCERT/GovCERT, HPE, Huawei, MSRC, Qianxin, and Zimbra payloads; other providers use common product, vendor, description, remediation, and reference fields. Nested affected packages and vulnerable CPEs are normalized for matching. Keyword candidates still require AI confirmation, and configured severity and date filters apply to every provider. Records without a severity do not pass a configured severity filter.
 

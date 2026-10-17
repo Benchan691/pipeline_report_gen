@@ -43,6 +43,7 @@ from pipeline.output import (
     resolve_output_folder,
     title_date,
 )
+from pipeline.report_identity import enrich_report_identities
 from pipeline import search as search_mod
 from pipeline.search import parse_firecrawl_results, queries_for_candidate, web_search
 from pipeline.transfer import (
@@ -122,6 +123,9 @@ def load_or_build_cards(cfg, candidates):
 
 
 def build_report_outputs(cfg, cards):
+    enrich_report_identities(cards, cfg)
+    if cfg.get("evidence_json") and os.path.isfile(cfg["evidence_json"]):
+        update_vulnerability_cards(cfg["evidence_json"], cards)
     output_dir = apply_run_output_paths(cfg, cards)
     log.info("Output folder: %s", output_dir)
     log.info(

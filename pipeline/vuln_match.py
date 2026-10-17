@@ -158,7 +158,8 @@ def confirm_software_match(doc, source, match, cfg):
     from pipeline.evidence import call_ai, extract_json
 
     system, user = match_confirmation_prompt(doc, source, match)
-    thinking_budget = cfg.get("vuln_match_thinking_budget_tokens")
+    enable_thinking = cfg.get("vuln_match_enable_thinking", True)
+    thinking_budget = cfg.get("vuln_match_thinking_budget_tokens") if enable_thinking else None
     try:
         text = call_ai(
             cfg["ai_base_url"],
@@ -166,7 +167,7 @@ def confirm_software_match(doc, source, match, cfg):
             system,
             user,
             max_tokens=int(cfg.get("vuln_match_ai_max_tokens", 4096)),
-            enable_thinking=True,
+            enable_thinking=enable_thinking,
             thinking_budget_tokens=thinking_budget,
         )
     except (Exception, SystemExit):
@@ -301,7 +302,7 @@ def ranked_matches(matches, top_n):
     return sorted(matches, key=lambda m: (-m["mark"], -SEVERITY_MARK.get(m["severity"], 0), m.get("published") or "", m["id"]))[:top_n]
 
 
-def select_confirmed_matches(pending, cfg, top_n, max_per_cluster):
+def select_confirmed_matches(pending, cfg, top_n, max_per_cluster, max_rejected=0):
     selected = []
     llm_rejected = 0
     cluster_cap_skipped = 0
@@ -333,6 +334,12 @@ def select_confirmed_matches(pending, cfg, top_n, max_per_cluster):
                 "  LLM rejected %s term=%r confidence=%s reason=%s",
                 item["id"], item["matched_software"], confirmation["confidence"], confirmation["reason"],
             )
+            if max_rejected and llm_rejected >= max_rejected:
+                log.warning(
+                    "  Rejection limit reached: rejected=%d limit=%d accepted=%d; stopping AI confirmation",
+                    llm_rejected, max_rejected, len(selected),
+                )
+                break
             continue
         item["mark_reasons"].extend((
             f"llm_related:{confirmation['confidence']}",
@@ -355,15 +362,20 @@ def build_filtered_matches(cfg):
     allowed = {norm_severity(s) for s in cfg.get("severity_filter", []) if str(s).strip()}
     days = cfg.get("vuln_match_scrape_days", cfg.get("scrape_days"))
     top_n = int(cfg.get("vuln_match_top_n", 20))
+    max_rejected = int(cfg.get("vuln_match_max_rejected") or 0)
+    if max_rejected < 0:
+        raise ValueError("vuln_match_max_rejected must be 0 (unlimited) or a positive integer")
     max_per_cluster = int(cfg.get("vuln_match_max_per_cluster") or 0)
     severity_text = ", ".join(sorted(allowed)) if allowed else "all"
     log.info(
-        "Cluster matching: %d term(s), severities=%s, scrape_days=%s, top_n=%d, max_per_cluster=%d",
+        "Cluster matching: %d term(s), severities=%s, scrape_days=%s, top_n=%d, max_rejected=%d, max_per_cluster=%d, thinking=%s",
         len(terms),
         severity_text,
         days,
         top_n,
+        max_rejected,
         max_per_cluster,
+        cfg.get("vuln_match_enable_thinking", True),
     )
     pending = []
     seen = set()
@@ -430,7 +442,7 @@ def build_filtered_matches(cfg):
             },
         })
     ranked, llm_rejected, cluster_cap_skipped = select_confirmed_matches(
-        pending, cfg, top_n, max_per_cluster,
+        pending, cfg, top_n, max_per_cluster, max_rejected=max_rejected,
     )
     for index, item in enumerate(ranked, 1):
         log.info(
@@ -458,6 +470,7 @@ def build_filtered_matches(cfg):
         "after_cluster_cap": len(ranked),
         "keyword_hits": keyword_hits,
         "llm_rejected": llm_rejected,
+        "rejection_limit_reached": max_rejected > 0 and llm_rejected >= max_rejected,
         "cluster_cap_skipped": cluster_cap_skipped,
         "shortfall": max(0, top_n - len(ranked)),
     }
