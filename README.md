@@ -93,7 +93,7 @@ AI confirmation checks candidates from highest score to lowest and stops when ei
 
 Output filenames come from `output_docx` and `output_weekly_excel`. With `output_date_prefix: true` (the default), the pipeline prefixes each file with the report date range.
 
-The pipeline always creates Chinese and English DOCX reports. Word reports contain a linked overview, compact basic information, clearly separated explanation/impact/version/response sections, and clickable source links. The XLSX workbook keeps the regional review blocks and leaves `是否涉及` blank for human review, with a dropdown, frozen headings and readable row shading.
+The pipeline always creates Chinese and English DOCX reports. Word reports use `docx_template` and keep the original nine-row vulnerability tables, merged cells, field order and page settings. Readability improvements stay within that layout: consistent fonts, spacing, cell padding, subtle shading and clickable source links. Full affected versions appear in the existing scope row. The XLSX workbook keeps the regional review blocks and leaves `是否涉及` blank for human review, with a dropdown, frozen headings and readable row shading.
 
 Before building reports, AI summarizes one vendor and one canonical product name from the supplied title, product/vendor fields and matched software. Product labels omit versions, builds and edition lists; digits belonging to actual brands such as Microsoft 365 remain. Labels are cached under `report_identity` and refreshed when their inputs or model change. Invalid or unavailable AI responses fall back to concise source labels. The original product/vendor lists and affected versions remain in the evidence cache; Word still shows affected versions separately.
 

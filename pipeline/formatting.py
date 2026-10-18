@@ -1,6 +1,6 @@
 from pipeline.constants import DEFAULT_REPORT_LANG, LOCALES
 from pipeline.news_schema import doc_cve_ids, doc_published_text, news_fields, provider_details
-from pipeline.utils import val
+from pipeline.utils import unique, val
 
 
 def localized(card, field, lang):
@@ -82,8 +82,8 @@ def word_rows(card, lang):
         (labels["system"], asset_text(card), labels["product"], products),
         (labels["threat"], format_severity(card.get("severity") or card_raw(card).get("severity"), lang), labels["date"], val(display_date(card_date(card)))),
         (labels["hazard"] + hazard,),
-        (labels["scope"] + val(products),),
-        (labels["ref"] + ((card.get("references") or ["-"])[0]),),
+        (labels["scope"] + val(card.get("affected_versions") or card.get("affected_products") or products),),
+        (labels["ref"] + val(unique(card.get("references") or [])),),
         (labels["patch"] + val(localized(card, "how_to_respond", lang)),),
         (labels["link"] + link_for(card),),
     ]
