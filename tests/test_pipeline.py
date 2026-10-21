@@ -270,7 +270,7 @@ class PipelineTests(unittest.TestCase):
                 main()
             self.assertIn("--fake is only valid together with --receive-transfer or --send-transfer", str(ctx.exception))
 
-        with patch("pipeline.cli.setup_logging"), patch("pipeline.cli.load_config"), patch("pipeline.cli.receive_transfer") as receive:
+        with patch("pipeline.cli.setup_logging"), patch("pipeline.cli.load_config", return_value={}), patch("pipeline.cli.receive_transfer") as receive:
             with patch("sys.argv", ["main.py", "--receive-transfer", "--fake"]):
                 from pipeline.cli import main
 

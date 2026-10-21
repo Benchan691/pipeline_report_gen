@@ -6,9 +6,9 @@ import sys
 import tempfile
 from datetime import datetime
 
-from zimbra_client import ZimbraClient
+from zimbra_client import Attachment, ZimbraClient
 
-from pipeline.config import load_config, normalize_search_provider, parse_email_list
+from pipeline.config import load_config, normalize_email_delivery, normalize_search_provider, parse_email_list
 from pipeline.constants import REPORT_LANGS
 from pipeline.dependencies import check_dependencies, load_workbook, setup_logging
 from pipeline.docx_report import build_docx
@@ -47,6 +47,7 @@ from pipeline.report_identity import enrich_report_identities
 from pipeline import search as search_mod
 from pipeline.search import parse_firecrawl_results, queries_for_candidate, web_search
 from pipeline.transfer import (
+    make_transfer_zip,
     receive_transfer,
     require_zimbra_config,
     send_test_transfer,
@@ -171,19 +172,39 @@ def send_report_email(cfg, share_url, subject=None):
         )
 
 
+def send_report_attachment_email(cfg, folder, subject):
+    attachment = Attachment(
+        filename=f"{os.path.basename(folder)}.zip",
+        data=make_transfer_zip(folder),
+        content_type="application/zip",
+    )
+    with ZimbraClient(cfg) as client:
+        client.send_message(
+            to=parse_email_list(cfg.get("email_receiver")),
+            subject=subject,
+            text=str(cfg.get("email_attachment_body") or "本週漏洞報告文件已附於郵件附件，敬請查閱。"),
+            attachments=[attachment],
+        )
+
+
 def send_email_from_folder(cfg, folder_path):
     try:
+        delivery = normalize_email_delivery(cfg.get("email_delivery"))
         require_email_config(cfg)
         folder = resolve_output_folder(cfg, folder_path)
         paths = list_report_paths(folder)
     except ValueError as exc:
         sys.exit(str(exc))
     subject = build_email_subject(paths=paths, folder=folder, cfg=cfg)
-    result = upload_output_folder_or_exit(folder, required=True)
-    send_report_email(cfg, result.share_url, subject)
+    if delivery == "attachment":
+        send_report_attachment_email(cfg, folder, subject)
+    else:
+        result = upload_output_folder_or_exit(folder, required=True)
+        send_report_email(cfg, result.share_url, subject)
     log.info(
-        "Email sent to %s with eDrive link (%s)",
+        "Email sent to %s via %s (%s)",
         ", ".join(parse_email_list(cfg.get("email_receiver"))),
+        delivery,
         folder,
     )
 
@@ -206,7 +227,12 @@ def build_arg_parser():
     parser.add_argument(
         "--send-email",
         metavar="FOLDER",
-        help="upload an existing folder to eDrive and email the share link (e.g. 20260706_173000)",
+        help="email an existing report folder using the selected email delivery method (e.g. 20260706_173000)",
+    )
+    parser.add_argument(
+        "--email-delivery",
+        choices=("edrive", "attachment"),
+        help="override email_delivery in config.json: eDrive share link (default) or a folder ZIP attachment; attachment mode sends the full pipeline output directly to EMAIL_RECEIVER",
     )
     parser.add_argument(
         "--send-transfer",
@@ -219,12 +245,12 @@ def build_arg_parser():
     parser.add_argument(
         "--receive-transfer",
         action="store_true",
-        help="listen on CloudAMQP for transfer wake-ups, then download the Zimbra ZIP, upload to eDrive, email the share link, and delete it",
+        help="listen on CloudAMQP for transfer wake-ups, then download the Zimbra ZIP, deliver via eDrive or attachment, and delete the received folder",
     )
     parser.add_argument(
         "--fake",
         action="store_true",
-        help="with --receive-transfer: check eDrive but skip upload/notify; with --send-transfer: send a synthetic test ZIP",
+        help="with --receive-transfer: skip delivery (check connectivity in eDrive mode); with --send-transfer: send a synthetic test ZIP",
     )
     return parser
 
@@ -259,13 +285,17 @@ def main():
         )
 
     setup_logging()
+    email_only = bool(args.send_email or args.send_transfer is not None or args.receive_transfer)
+    cfg = load_config(email_only=email_only)
+    try:
+        cfg["email_delivery"] = normalize_email_delivery(args.email_delivery or cfg.get("email_delivery"))
+    except ValueError as exc:
+        sys.exit(str(exc))
     if args.send_email:
         log.info("Sending report email from folder %s", args.send_email)
-        cfg = load_config(email_only=True)
         send_email_from_folder(cfg, args.send_email)
         return
     if args.send_transfer is not None:
-        cfg = load_config(email_only=True)
         try:
             if args.fake:
                 if args.send_transfer:
@@ -283,10 +313,9 @@ def main():
         return
     if args.receive_transfer:
         if args.fake:
-            log.info("Listening for transfer wake-ups (fake mode: skip eDrive and notify email)")
+            log.info("Listening for transfer wake-ups (fake mode: skip report delivery)")
         else:
-            log.info("Listening for transfer wake-ups")
-        cfg = load_config(email_only=True)
+            log.info("Listening for transfer wake-ups (delivery=%s)", cfg["email_delivery"])
         try:
             receive_transfer(
                 cfg,
@@ -297,7 +326,6 @@ def main():
             sys.exit(str(exc))
         return
 
-    cfg = load_config()
     check_ai_connectivity(cfg)
     if args.translate:
         log.info("Translating evidence JSON")
@@ -313,7 +341,10 @@ def main():
         check_dependencies()
         log.info("Starting vulnerability report pipeline")
         try:
-            require_zimbra_config(cfg)
+            if cfg["email_delivery"] == "attachment":
+                require_email_config(cfg)
+            else:
+                require_zimbra_config(cfg)
         except ValueError as exc:
             sys.exit(str(exc))
     log.info(
@@ -346,7 +377,8 @@ def main():
         cards = load_existing_cards_or_exit(cfg, candidates)
         cards = maybe_translate_cards(cards, cfg, write_back=True)
         paths = build_report_outputs(cfg, cards)
-        upload_output_folder_or_exit(cfg["output_dir"], required=False)
+        if cfg["email_delivery"] == "edrive":
+            upload_output_folder_or_exit(cfg["output_dir"], required=False)
         log.info("Done. Outputs: %s, %s, %s", *paths)
         return
 
@@ -357,6 +389,8 @@ def main():
     paths = build_report_outputs(cfg, cards)
     if args.local_only:
         log.info("Local report folder created: %s", cfg["output_dir"])
+    elif cfg["email_delivery"] == "attachment":
+        send_email_from_folder(cfg, cfg["output_dir"])
     else:
         send_transfer_from_folder(cfg, cfg["output_dir"])
         log.info("Transfer email sent for output folder %s", cfg["output_dir"])

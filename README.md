@@ -25,7 +25,21 @@ All commands use the repository's [config.json](config.json). There is no `--con
    .venv/bin/python main.py
    ```
 
-The full pipeline selects vulnerabilities, searches for evidence, builds both DOCX files and the XLSX workbook, then emails the dated output folder as a ZIP to the configured Zimbra transfer mailbox.
+The full pipeline selects vulnerabilities, searches for evidence, builds both DOCX files and the XLSX workbook, then emails the dated output folder as a ZIP to the configured Zimbra transfer mailbox by default.
+
+To email the folder directly to `EMAIL_RECEIVER` as a ZIP attachment, run:
+
+```bash
+.venv/bin/python main.py --email-delivery attachment
+```
+
+For an existing report folder:
+
+```bash
+.venv/bin/python main.py --send-email 20260706_173000 --email-delivery attachment
+```
+
+Attachment delivery preserves the folder structure and skips eDrive and the CloudAMQP transfer bridge. It requires only the Zimbra credentials and `EMAIL_RECEIVER` for delivery. Set `"email_delivery": "attachment"` in `config.json` to make it the default; `--email-delivery edrive` selects the original eDrive workflow for a run. Generated folders remain available locally after direct sending. Normal email attachment size limits apply.
 
 ## How it works
 
@@ -35,9 +49,9 @@ The full pipeline selects vulnerabilities, searches for evidence, builds both DO
 4. Extract source-grounded evidence in Chinese with the configured AI server.
 5. Translate the merged report text to English.
 6. Write the evidence cache and dated DOCX/XLSX output files.
-7. Send the run folder through the Zimbra transfer bridge and publish a CloudAMQP wake-up.
+7. Deliver the run folder: send directly to recipients as a ZIP in attachment mode, or use the Zimbra transfer bridge and publish a CloudAMQP wake-up in eDrive mode.
 
-The eDrive receiver runs `--receive-transfer`, listens on CloudAMQP, downloads the transfer ZIP from Zimbra, uploads it to eDrive, and sends the share link to the report recipient.
+The receiver runs `--receive-transfer`, listens on CloudAMQP, downloads the transfer ZIP from Zimbra, uploads it to eDrive, and sends the share link to the report recipient. With `--email-delivery attachment`, the receiver emails the folder ZIP to recipients instead. After successful delivery, it deletes the received local folder and the transfer email.
 
 ## Commands
 
@@ -46,15 +60,18 @@ Run these from the repository root.
 | Command | What it does |
 | --- | --- |
 | `.venv/bin/python main.py` | Run the complete report pipeline and send the output ZIP to Zimbra. |
+| `.venv/bin/python main.py --email-delivery attachment` | Run the complete report pipeline and email the output folder ZIP directly to `EMAIL_RECEIVER`. |
 | `.venv/bin/python main.py --local-only` | Run the complete report pipeline and save the dated output folder locally without sending email or publishing a CloudAMQP wake-up. |
 | `.venv/bin/python main.py --cluster-match` | Match vulnerabilities to software clusters only; does not search or write reports. |
 | `.venv/bin/python main.py --translate` | Add or refresh English translations in the existing evidence JSON. |
-| `.venv/bin/python main.py --build-reports` | Build reports from existing evidence JSON; does not search or send transfer email. |
+| `.venv/bin/python main.py --build-reports` | Build reports from existing evidence JSON; does not search or send email. Optionally uploads to eDrive when configured and using eDrive delivery. |
 | `.venv/bin/python main.py --send-transfer 20260706_173000` | Send an existing output folder as a ZIP through Zimbra and publish a CloudAMQP wake-up. |
 | `.venv/bin/python main.py --send-transfer --fake` | Create a tiny synthetic test folder, ZIP it, send through Zimbra, and publish a CloudAMQP wake-up. |
 | `.venv/bin/python main.py --receive-transfer` | Listen on CloudAMQP, then process each transfer ZIP from Zimbra (eDrive upload + share-link email), and delete the local output folder after upload. |
-| `.venv/bin/python main.py --receive-transfer --fake` | Same as `--receive-transfer`, but only checks eDrive connectivity (no upload) and skips notify email; still extracts ZIP and deletes the transfer mail. |
+| `.venv/bin/python main.py --receive-transfer --email-delivery attachment` | Listen on CloudAMQP, then email each received folder ZIP to recipients and delete the received local folder after successful delivery. |
+| `.venv/bin/python main.py --receive-transfer --fake` | Skip final delivery; check eDrive connectivity only in eDrive mode. Still extracts ZIP and deletes the transfer mail, and retains the received local folder. |
 | `.venv/bin/python main.py --send-email 20260706_173000` | Upload an existing output folder to eDrive and email its share link. |
+| `.venv/bin/python main.py --send-email 20260706_173000 --email-delivery attachment` | Email an existing report folder as a ZIP attachment to `EMAIL_RECEIVER`, without eDrive. |
 | `.venv/bin/python main.py --self-test` | Run the local test suite without MongoDB, search, AI, eDrive, or Zimbra. |
 | `.venv/bin/python -m unittest discover -s tests -v` | Run the test suite directly. |
 
@@ -85,7 +102,10 @@ For `--send-transfer` and `--send-email`, pass either a run-folder name under `o
 | `ai_base_url`, `ai_model` | Local OpenAI-compatible AI server used for extraction and translation. |
 | `use_existing_evidence_json` | Reuse cached evidence and fetch only missing cards. |
 | `output_root` | Parent directory for timestamped report folders. |
-| `email_title`, `email_body` | Subject suffix and body for the final eDrive share-link notification. |
+| `email_delivery` | `edrive` (default) or `attachment`. Applies to the full pipeline, `--send-email`, and `--receive-transfer`; override with `--email-delivery`. Attachment mode also skips the optional eDrive upload for `--build-reports`. |
+| `email_title` | Subject suffix for report emails in either delivery mode. |
+| `email_body` | Body for the eDrive share-link notification. |
+| `email_attachment_body` | Optional body for ZIP attachment emails. Defaults to `本週漏洞報告文件已附於郵件附件，敬請查閱。`. |
 
 Use JSON booleans (`true` or `false`, without quotes) for `vuln_match_enable_thinking`. Evidence extraction and English translation keep thinking disabled.
 
@@ -109,8 +129,8 @@ Copy [`.env.example`](.env.example) to `.env`, then supply the credentials neede
 | --- | --- |
 | `FIRECRAWL_API_KEY` | Firecrawl searches, including SearXNG fallback. Comma-separated keys rotate on failure. |
 | `ZIMBRA_HOST`, `ZIMBRA_EMAIL`, `ZIMBRA_PASSWORD` | Sending or receiving transfer emails and email notifications. |
-| `CLOUDAMQP_URL`, `CLOUDAMQP_QUEUE` | Transfer wake-up listener (`--receive-transfer`) and publish after `--send-transfer` / full pipeline. |
-| `EMAIL_RECEIVER` | Sending the final eDrive share-link notification. Comma-separated for multiple recipients. |
+| `CLOUDAMQP_URL`, `CLOUDAMQP_QUEUE` | Transfer wake-up listener (`--receive-transfer`) and publish after `--send-transfer` / full pipeline in eDrive mode. Not needed for direct attachment delivery. |
+| `EMAIL_RECEIVER` | Sending the final report email (share link or ZIP attachment). Comma-separated for multiple recipients. |
 | `EDRIVE_USERNAME`, `EDRIVE_PASSWORD`, `EDRIVE_REMOTE_PATH`, `EDRIVE_BASE_URL` | Uploading to eDrive. |
 
 ## Services and dependencies

@@ -13,6 +13,7 @@ from zimbra_client import Attachment, ZimbraClient
 from zimbra_client.mail import MAIL_NAMESPACE, _qname
 
 from pipeline.amqp import consume_transfer_requests, publish_transfer_request
+from pipeline.config import normalize_email_delivery
 from pipeline.edrive_upload import check_edrive_connectivity_or_exit
 
 log = logging.getLogger(__name__)
@@ -298,16 +299,18 @@ def delete_received_output_folder(output_root, folder_name):
     if not target.is_dir():
         raise ValueError(f"Output path is not a folder: {target}")
     shutil.rmtree(target)
-    log.info("Deleted local output folder after eDrive upload: %s", target)
+    log.info("Deleted local output folder after report delivery: %s", target)
 
 
 def receive_transfer(cfg, deliver_folder, fake=False):
     require_zimbra_config(cfg)
+    delivery = normalize_email_delivery(cfg.get("email_delivery"))
 
     def deliver(folder_name):
         if fake:
-            check_edrive_connectivity_or_exit(required=True)
-            log.info("Fake receive: skipped eDrive upload and notify email for %s", folder_name)
+            if delivery == "edrive":
+                check_edrive_connectivity_or_exit(required=True)
+            log.info("Fake receive: skipped %s delivery for %s", delivery, folder_name)
             return
         deliver_folder(folder_name)
         delete_received_output_folder(cfg.get("output_root", "output"), folder_name)

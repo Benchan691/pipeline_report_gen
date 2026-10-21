@@ -27,6 +27,13 @@ def parse_email_list(value):
     return [str(part).strip() for part in parts if str(part).strip()]
 
 
+def normalize_email_delivery(value):
+    delivery = str(value or "edrive").strip().lower()
+    if delivery not in ("edrive", "attachment"):
+        raise ValueError("email_delivery must be edrive or attachment")
+    return delivery
+
+
 def parse_firecrawl_api_keys(value):
     if isinstance(value, (list, tuple)):
         parts = value
@@ -96,6 +103,7 @@ def load_config(email_only=False):
     cfg.setdefault("output_root", "output")
     cfg.setdefault("zimbra_folder_id", "2")
     cfg.setdefault("zimbra_scan_limit", 10)
+    cfg.setdefault("email_delivery", "edrive")
     cfg.setdefault("email_title", "漏洞報告文件")
     cfg.setdefault("email_body", "各位好：\n本週漏洞報告連結如下，敬請查閱。\n如有任何問題或需要進一步說明，請隨時告知。\n謝謝。")
     _apply_env_overrides(cfg)
