@@ -238,6 +238,8 @@ class PipelineTests(unittest.TestCase):
         client_class.assert_called_once_with(cfg)
         client.send_message.assert_called_once_with(
             to=["recipient@example.com"],
+            cc=[],
+            bcc=[],
             subject="Weekly report",
             text="Report link:\n\nhttps://edrive.example/share",
         )

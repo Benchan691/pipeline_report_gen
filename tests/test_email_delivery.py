@@ -38,7 +38,7 @@ class EmailDeliveryTests(unittest.TestCase):
     def test_attachment_sends_complete_zip_to_recipients_without_edrive_or_bridge(self):
         with tempfile.TemporaryDirectory() as root:
             folder = self.report_folder(root)
-            cfg = dict(self.config(root), email_delivery="attachment")
+            cfg = dict(self.config(root), email_delivery="attachment", email_cc="copy@example.com", email_bcc=["private@example.com"])
             with patch("pipeline.cli.ZimbraClient") as client_class, patch(
                 "pipeline.cli.upload_output_folder_or_exit"
             ) as upload, patch("pipeline.transfer.publish_transfer_request") as publish:
@@ -47,6 +47,8 @@ class EmailDeliveryTests(unittest.TestCase):
 
             sent = client.send_message.call_args.kwargs
             self.assertEqual(sent["to"], ["first@example.com", "second@example.com"])
+            self.assertEqual(sent["cc"], ["copy@example.com"])
+            self.assertEqual(sent["bcc"], ["private@example.com"])
             self.assertEqual(sent["subject"], "2026年6月30日-7月6日Weekly report")
             self.assertIn("附件", sent["text"])
             self.assertNotIn("link", sent["text"])
@@ -69,7 +71,7 @@ class EmailDeliveryTests(unittest.TestCase):
     def test_default_edrive_delivery_still_emails_share_link(self):
         with tempfile.TemporaryDirectory() as root:
             folder = self.report_folder(root)
-            cfg = self.config(root)
+            cfg = dict(self.config(root), email_cc=["copy@example.com"], email_bcc="private@example.com")
             with patch("pipeline.cli.ZimbraClient") as client_class, patch(
                 "pipeline.cli.upload_output_folder_or_exit",
                 return_value=SimpleNamespace(share_url="https://edrive.example/share"),
@@ -78,6 +80,8 @@ class EmailDeliveryTests(unittest.TestCase):
             upload.assert_called_once_with(str(folder), required=True)
             client_class.return_value.__enter__.return_value.send_message.assert_called_once_with(
                 to=["first@example.com", "second@example.com"],
+                cc=["copy@example.com"],
+                bcc=["private@example.com"],
                 subject="2026年6月30日-7月6日Weekly report",
                 text="Report link below.\n\nhttps://edrive.example/share",
             )
@@ -103,7 +107,7 @@ class EmailDeliveryTests(unittest.TestCase):
     def test_invalid_delivery_or_missing_recipient_fails_before_sending(self):
         for overrides, error in [
             ({"email_delivery": "invalid"}, "email_delivery must be"),
-            ({"email_delivery": "attachment", "email_receiver": []}, "EMAIL_RECEIVER"),
+            ({"email_delivery": "attachment", "email_receiver": []}, "email_receiver"),
         ]:
             with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as root:
                 folder = self.report_folder(root)
@@ -114,6 +118,23 @@ class EmailDeliveryTests(unittest.TestCase):
                     send_email_from_folder(cfg, folder.name)
                 client_class.assert_not_called()
                 upload.assert_not_called()
+
+    def test_cc_or_bcc_only_delivery_is_supported_in_both_modes(self):
+        for delivery in ("edrive", "attachment"):
+            for recipient_key in ("email_cc", "email_bcc"):
+                with self.subTest(delivery=delivery, recipient_key=recipient_key), tempfile.TemporaryDirectory() as root:
+                    folder = self.report_folder(root)
+                    cfg = dict(self.config(root), email_delivery=delivery, email_receiver=[])
+                    cfg[recipient_key] = ["recipient@example.com"]
+                    with patch("pipeline.cli.ZimbraClient") as client_class, patch(
+                        "pipeline.cli.upload_output_folder_or_exit",
+                        return_value=SimpleNamespace(share_url="https://edrive.example/share"),
+                    ):
+                        send_email_from_folder(cfg, folder.name)
+                    sent = client_class.return_value.__enter__.return_value.send_message.call_args.kwargs
+                    self.assertEqual(sent["to"], [])
+                    self.assertEqual(sent["cc"], cfg.get("email_cc", []))
+                    self.assertEqual(sent["bcc"], cfg.get("email_bcc", []))
 
     def test_full_pipeline_routes_config_cli_override_and_local_only(self):
         cases = [
@@ -155,7 +176,7 @@ class EmailDeliveryTests(unittest.TestCase):
             with self.subTest(fail_send=fail_send), tempfile.TemporaryDirectory() as root, ExitStack() as stack:
                 folder = self.report_folder(Path(root) / "source")
                 output_root = Path(root) / "received"
-                cfg = self.config(output_root)
+                cfg = dict(self.config(output_root), email_cc=["copy@example.com"], email_bcc=["private@example.com"])
                 zip_bytes = make_transfer_zip(folder)
                 stack.enter_context(patch("pipeline.cli.setup_logging"))
                 stack.enter_context(patch("pipeline.cli.load_config", return_value=cfg))
@@ -183,7 +204,10 @@ class EmailDeliveryTests(unittest.TestCase):
                     main()
                     self.assertFalse((output_root / folder.name).exists())
                     transfer_client.delete_message.assert_called_once_with("message-1")
-                    self.assertEqual(client.send_message.call_args.kwargs["attachments"][0].filename, f"{folder.name}.zip")
+                    sent = client.send_message.call_args.kwargs
+                    self.assertEqual(sent["attachments"][0].filename, f"{folder.name}.zip")
+                    self.assertEqual(sent["cc"], ["copy@example.com"])
+                    self.assertEqual(sent["bcc"], ["private@example.com"])
                 upload.assert_not_called()
 
     def test_fake_receiver_checks_edrive_only_for_edrive_delivery(self):

@@ -151,10 +151,9 @@ def build_link_body(body, link_url):
 
 
 def require_email_config(cfg):
-    receivers = parse_email_list(cfg.get("email_receiver"))
     missing = []
-    if not receivers:
-        missing.append("EMAIL_RECEIVER in .env")
+    if not any(parse_email_list(cfg.get(key)) for key in ("email_receiver", "email_cc", "email_bcc")):
+        missing.append("email_receiver, email_cc or email_bcc in config.json")
     try:
         require_zimbra_config(cfg)
     except ValueError as exc:
@@ -167,6 +166,8 @@ def send_report_email(cfg, share_url, subject=None):
     with ZimbraClient(cfg) as client:
         client.send_message(
             to=parse_email_list(cfg.get("email_receiver")),
+            cc=parse_email_list(cfg.get("email_cc")),
+            bcc=parse_email_list(cfg.get("email_bcc")),
             subject=subject or str(cfg.get("email_title") or "漏洞報告文件").strip(),
             text=build_link_body(cfg.get("email_body"), share_url),
         )
@@ -181,6 +182,8 @@ def send_report_attachment_email(cfg, folder, subject):
     with ZimbraClient(cfg) as client:
         client.send_message(
             to=parse_email_list(cfg.get("email_receiver")),
+            cc=parse_email_list(cfg.get("email_cc")),
+            bcc=parse_email_list(cfg.get("email_bcc")),
             subject=subject,
             text=str(cfg.get("email_attachment_body") or "本週漏洞報告文件已附於郵件附件，敬請查閱。"),
             attachments=[attachment],
@@ -232,7 +235,7 @@ def build_arg_parser():
     parser.add_argument(
         "--email-delivery",
         choices=("edrive", "attachment"),
-        help="override email_delivery in config.json: eDrive share link (default) or a folder ZIP attachment; attachment mode sends the full pipeline output directly to EMAIL_RECEIVER",
+        help="override email_delivery in config.json: eDrive share link (default) or a folder ZIP attachment; attachment mode sends the full pipeline output directly to the configured recipients",
     )
     parser.add_argument(
         "--send-transfer",

@@ -49,7 +49,10 @@ def _apply_env_overrides(cfg):
     keys = parse_firecrawl_api_keys(_env_or_cfg(cfg, "FIRECRAWL_API_KEY", "firecrawl_api_key"))
     cfg["firecrawl_api_keys"] = keys
     cfg["firecrawl_api_key"] = keys[0] if keys else ""
-    cfg["email_receiver"] = parse_email_list(_env_or_cfg(cfg, "EMAIL_RECEIVER", "email_receiver"))
+    # Explicit JSON recipients take precedence, including empty lists.
+    cfg["email_receiver"] = parse_email_list(cfg.get("email_receiver", os.environ.get("EMAIL_RECEIVER")))
+    cfg["email_cc"] = parse_email_list(cfg.get("email_cc"))
+    cfg["email_bcc"] = parse_email_list(cfg.get("email_bcc"))
     cfg["zimbra_host"] = _env_or_cfg(cfg, "ZIMBRA_HOST", "zimbra_host")
     cfg["zimbra_email"] = _env_or_cfg(cfg, "ZIMBRA_EMAIL", "zimbra_email")
     cfg["zimbra_password"] = _env_or_cfg(cfg, "ZIMBRA_PASSWORD", "zimbra_password")
