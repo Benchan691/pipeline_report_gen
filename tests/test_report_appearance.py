@@ -1,10 +1,12 @@
 import tempfile
 import unittest
-from copy import copy
+from copy import copy, deepcopy
 from pathlib import Path
 from zipfile import ZipFile
 
-from pipeline.dependencies import Document, load_workbook
+from docx.shared import Emu, Inches
+
+from pipeline.dependencies import Document, load_workbook, qn
 from pipeline.docx_report import build_docx
 from pipeline.excel_report import build_weekly_excel, weekly_region_blocks
 from pipeline.output import title_date
@@ -61,13 +63,26 @@ class ReportAppearanceTests(unittest.TestCase):
         return path, load_workbook(path).active
 
     def assert_word_table_style(self, actual, expected):
-        self.assertEqual(actual._tbl.tblPr.xml, expected._tbl.tblPr.xml)
-        self.assertEqual(actual._tbl.tblGrid.xml, expected._tbl.tblGrid.xml)
+        properties = []
+        for table in (actual, expected):
+            props = deepcopy(table._tbl.tblPr)
+            for tag in ("tblW", "tblLayout", "tblInd"):
+                for node in list(props.findall(qn("w:" + tag))):
+                    props.remove(node)
+            properties.append(props.xml)
+        self.assertEqual(*properties)
+        self.assertEqual(len(actual.columns), len(expected.columns))
         self.assertEqual(len(actual.rows), 9)
         for actual_row, expected_row in zip(actual.rows, expected.rows):
             self.assertEqual(xml_or_none(actual_row._tr.trPr), xml_or_none(expected_row._tr.trPr))
             for actual_cell, expected_cell in zip(actual_row._tr.tc_lst, expected_row._tr.tc_lst):
-                self.assertEqual(xml_or_none(actual_cell.tcPr), xml_or_none(expected_cell.tcPr))
+                properties = []
+                for cell in (actual_cell, expected_cell):
+                    props = deepcopy(cell.tcPr)
+                    for node in list(props.findall(qn("w:tcW"))):
+                        props.remove(node)
+                    properties.append(props.xml)
+                self.assertEqual(*properties)
                 self.assertEqual(len(actual_cell.p_lst), len(expected_cell.p_lst))
                 for actual_p, expected_p in zip(actual_cell.p_lst, expected_cell.p_lst):
                     self.assertEqual(xml_or_none(actual_p.pPr), xml_or_none(expected_p.pPr))
@@ -97,6 +112,39 @@ class ReportAppearanceTests(unittest.TestCase):
                         self.assert_word_table_style(table, template.tables[min(index, len(template.tables) - 1)])
                     if count:
                         self.assertEqual(report.tables[-1]._element.getnext().tag, report.sections[-1]._sectPr.tag)
+
+    def test_word_fixed_table_widths_fit_the_page_including_merged_cells(self):
+        for page_width in (None, Inches(6)):
+            with self.subTest(page_width=page_width), tempfile.TemporaryDirectory() as directory:
+                template = Document(WORD_TEMPLATE)
+                if page_width is not None:
+                    template.sections[0].page_width = page_width
+                    template.sections[0].left_margin = Inches(1)
+                    template.sections[0].right_margin = Inches(1)
+                path = Path(directory) / "template.docx"
+                template.save(path)
+                for lang in ("zh", "en"):
+                    card = report_card()
+                    card["title"][lang] = "A long title that must wrap within the page " * 6
+                    output = Path(directory) / f"fixed-{lang}.docx"
+                    build_docx([card] * 3, {"docx_template": str(path)}, lang, str(output))
+                    report = Document(output)
+                    section = report.sections[0]
+                    available = Emu(section.page_width - section.left_margin - section.right_margin - section.gutter).twips
+                    original = [column.width.twips for column in template.tables[0].columns]
+                    for table in report.tables:
+                        widths = [column.width.twips for column in table.columns]
+                        self.assertEqual(sum(widths), available)
+                        self.assertFalse(table.autofit)
+                        self.assertEqual(table._tbl.tblPr.find(qn("w:tblW")).get(qn("w:w")), str(available))
+                        self.assertEqual(table._tbl.tblPr.find(qn("w:tblInd")).get(qn("w:w")), "0")
+                        for actual, source in zip(widths, original):
+                            self.assertAlmostEqual(actual, source * available / sum(original), delta=1)
+                        for row in table.rows:
+                            column = 0
+                            for cell in row._tr.tc_lst:
+                                self.assertEqual(cell.width.twips, sum(widths[column:column + cell.grid_span]))
+                                column += cell.grid_span
 
     def test_word_retains_full_urls_current_fields_versions_and_opaque_parts(self):
         card = report_card()
@@ -186,7 +234,7 @@ class ReportAppearanceTests(unittest.TestCase):
                     for offset, card in enumerate(cards):
                         self.assertEqual(sheet.cell(start + offset, 3).value, card["cve_id"])
                         self.assertIsNone(sheet.cell(start + offset, 2).value)
-                        self.assertEqual(copy(sheet.cell(start + offset, 6).font), copy(template.cell(min(source_start + offset, source_end), 6).font))
+                        self.assertEqual(copy(sheet.cell(start + offset, 6).font), copy(template.cell(source_start, 6).font))
                     if source_end < template.max_row:
                         self.assertEqual(sheet.row_dimensions[end + 1].height, template.row_dimensions[source_end + 1].height)
                         for col in range(1, 8):
@@ -195,6 +243,35 @@ class ReportAppearanceTests(unittest.TestCase):
                             f"A{end + 1}:G{end + 1}" in set(map(str, sheet.merged_cells.ranges)),
                             f"A{source_end + 1}:G{source_end + 1}" in set(map(str, template.merged_cells.ranges)),
                         )
+
+    def test_excel_populated_rows_have_consistent_fonts_sizes_and_alignment(self):
+        template = load_workbook(EXCEL_TEMPLATE).active
+        original_blocks = weekly_region_blocks(template)
+        # These differently formatted placeholders caused the visible jump in
+        # text size and alignment once a report reached its eighth record.
+        self.assertEqual(template["C3"].font.sz, 12)
+        self.assertEqual(template["C10"].font.sz, 14)
+        self.assertEqual(template["C10"].alignment.horizontal, "left")
+        for count in (9, 23):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as directory:
+                cards = [report_card(index) for index in range(count)]
+                _, sheet = self.build_excel(directory, cards)
+                self.assert_excel_settings(sheet, template)
+                for (start, _, _), (source_start, source_end, _) in zip(weekly_region_blocks(sheet), original_blocks):
+                    for offset, card in enumerate(cards):
+                        row = start + offset
+                        self.assertEqual(sheet.cell(row, 3).value, card["cve_id"])
+                        self.assertGreaterEqual(sheet.row_dimensions[row].height, template.row_dimensions[source_start].height)
+                        for col in range(2, 8):
+                            actual = sheet.cell(row, col)
+                            expected = template.cell(source_start, col)
+                            self.assertEqual(copy(actual.font), copy(expected.font), actual.coordinate)
+                            self.assertEqual(copy(actual.alignment), copy(expected.alignment), actual.coordinate)
+                    for offset in range(count, source_end - source_start + 1):
+                        row, source_row = start + offset, source_start + offset
+                        self.assertEqual(sheet.row_dimensions[row].height, template.row_dimensions[source_row].height)
+                        for col in range(2, 8):
+                            self.assertEqual(sheet.cell(row, col)._style, template.cell(source_row, col)._style)
 
     def test_excel_wraps_long_text_and_multiple_cves_without_changing_fonts_or_values(self):
         template = load_workbook(EXCEL_TEMPLATE).active

@@ -212,7 +212,9 @@ class NewsProviderTests(unittest.TestCase):
             self.assertEqual([cell.text for cell in metadata.rows[1].cells], ["CVE number", "CVE-2026-1234", "Vendor", "Vendor"])
             self.assertEqual(metadata.rows[2].cells[3].text, "Product")
             self.assertTrue(metadata.rows[7].cells[0].text.startswith("The official patch: "))
-            self.assertEqual([c.width for c in metadata.columns], [c.width for c in template.tables[0].columns])
+            section = report.sections[0]
+            self.assertEqual(sum(c.width for c in metadata.columns), section.page_width - section.left_margin - section.right_margin - section.gutter)
+            self.assertFalse(metadata.autofit)
             self.assertEqual(report.sections[0]._sectPr.xml, template.sections[0]._sectPr.xml)
             self.assertNotIn("Vulnerability overview", [p.text for p in report.paragraphs])
             ws = load_workbook(xlsx).active

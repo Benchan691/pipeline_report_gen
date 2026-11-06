@@ -94,6 +94,7 @@ def rebuild_weekly_sheet(ws, cards):
     row_index = 3
     for block in block_styles:
         start = row_index
+        data_cells, data_height = block["rows"][0]
         row_count = max(len(cards), len(block["rows"]))
         end = start + row_count - 1
         for offset in range(row_count):
@@ -106,8 +107,16 @@ def rebuild_weekly_sheet(ws, cards):
             values[0] = block["label"] if offset == 0 else None
             values[1] = ""
             for col_index, value in enumerate(values, start=1):
-                copy_cell(source_cells[col_index - 1], ws.cell(row_index, col_index), value)
+                cell = ws.cell(row_index, col_index)
+                copy_cell(source_cells[col_index - 1], cell, value)
+                if offset < len(cards) and col_index >= 2:
+                    # Blank template rows have inconsistent typography; use the
+                    # region's normal data formatting when those rows are filled.
+                    cell.font = copy(data_cells[col_index - 1].font)
+                    cell.alignment = copy(data_cells[col_index - 1].alignment)
             if offset < len(cards):
+                if data_height is not None:
+                    dimension.height = max(dimension.height or ws.sheet_format.defaultRowHeight, data_height)
                 _fit_populated_row(ws, row_index, values)
             row_index += 1
         ws.merge_cells(start_row=start, start_column=1, end_row=end, end_column=1)

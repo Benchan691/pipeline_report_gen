@@ -4,6 +4,8 @@ from copy import deepcopy
 from io import BytesIO
 from zipfile import ZipFile
 
+from docx.shared import Emu, Twips
+
 from pipeline.constants import LOCALES
 from pipeline.dependencies import Document, OxmlElement, qn
 from pipeline.formatting import word_rows
@@ -49,6 +51,41 @@ def ensure_table_count(doc, count):
         table._element.getparent().remove(table._element)
 
 
+def _fit_table_to_page(table, section):
+    """Use consistent fixed widths so Word cannot stretch long report text off-page."""
+    available = Emu(section.page_width - section.left_margin - section.right_margin - section.gutter).twips
+    grid = table._tbl.tblGrid.gridCol_lst
+    original = [column.w.twips for column in grid]
+    total = sum(original)
+    if available <= 0 or total <= 0:
+        raise ValueError("The DOCX template must have usable page and table widths")
+    width = min(total, available)
+    widths = [round(value * width / total) for value in original[:-1]]
+    widths.append(width - sum(widths))
+    table.autofit = False
+    props = table._tbl.tblPr
+    preferred = props.find(qn("w:tblW"))
+    if preferred is None:
+        preferred = OxmlElement("w:tblW")
+        props.insert_element_before(preferred, "w:jc", "w:tblInd", "w:tblBorders", "w:tblLayout", "w:tblLook")
+    preferred.set(qn("w:type"), "dxa")
+    preferred.set(qn("w:w"), str(width))
+    indent = props.find(qn("w:tblInd"))
+    if indent is None:
+        indent = OxmlElement("w:tblInd")
+        props.insert_element_before(indent, "w:tblBorders", "w:shd", "w:tblLayout", "w:tblCellMar", "w:tblLook")
+    indent.set(qn("w:type"), "dxa")
+    indent.set(qn("w:w"), "0")
+    for column, value in zip(grid, widths):
+        column.w = Twips(value)
+    for row in table.rows:
+        before = row._tr.trPr.find(qn("w:gridBefore")) if row._tr.trPr is not None else None
+        column = int(before.get(qn("w:val"))) if before is not None else 0
+        for cell in row._tr.tc_lst:
+            cell.width = Twips(sum(widths[column:column + cell.grid_span]))
+            column += cell.grid_span
+
+
 def add_page_break_after(table):
     paragraph = OxmlElement("w:p")
     props = OxmlElement("w:pPr")
@@ -90,6 +127,7 @@ def build_docx(cards, cfg, lang, output_path):
     ensure_table_count(doc, len(cards))
     for index, (table, card) in enumerate(zip(doc.tables, cards)):
         fill_table(table, card, lang)
+        _fit_table_to_page(table, doc.sections[0])
         if index < len(cards) - 1:
             add_page_break_after(table)
     # Unused sample spacers after the last table can spill onto a blank page.
