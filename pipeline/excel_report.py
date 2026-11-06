@@ -4,34 +4,35 @@ import sys
 import unicodedata
 from copy import copy
 
-from openpyxl.styles import Border, Font, PatternFill, Side
-from openpyxl.worksheet.datavalidation import DataValidation
-
-from pipeline.dependencies import Alignment, get_column_letter, load_workbook
+from pipeline.dependencies import get_column_letter, load_workbook
 from pipeline.formatting import weekly_row
 
 log = logging.getLogger(__name__)
 
 
+def _text_lines(ws, col_index, value):
+    dimension = ws.column_dimensions.get(get_column_letter(col_index))
+    if dimension is None:
+        dimension = next((item for item in ws.column_dimensions.values()
+                          if (item.min or 0) <= col_index <= (item.max or 0)), None)
+    width = dimension.width if dimension is not None else (ws.sheet_format.defaultColWidth or 12)
+    lines = 0
+    for part in str(value or "").splitlines() or [""]:
+        characters = sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in part)
+        lines += max(1, math.ceil(characters / max(width - 3, 8)))
+    return lines
+
+
 def row_height(ws, values):
-    lines = 1
-    for col_index, value in enumerate(values, start=1):
-        width = ws.column_dimensions[get_column_letter(col_index)].width or 12
-        cell_lines = 0
-        for part in str(value or "").splitlines() or [""]:
-            characters = sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in part)
-            cell_lines += max(1, math.ceil(characters / max(width - 3, 8)))
-        lines = max(lines, cell_lines)
-    return min(409, max(38, lines * 18 + 10))
+    lines = max((_text_lines(ws, col, value) for col, value in enumerate(values, 1)), default=1)
+    return min(409, lines * 18 + 3)
 
 
 def copy_cell(src, dst, value=None):
     dst.value = value
     if isinstance(value, str):
         dst.data_type = "s"
-    font = copy(src.font)
-    font.sz = 12
-    dst.font = font
+    dst.font = copy(src.font)
     dst.fill = copy(src.fill)
     dst.border = copy(src.border)
     dst.number_format = src.number_format
@@ -51,54 +52,79 @@ def weekly_row_style(ws, row_index):
     return [copy(ws.cell(row_index, col)) for col in range(1, 8)], ws.row_dimensions[row_index].height
 
 
+def _fit_populated_row(ws, row_index, values):
+    """Expand wrapped data only; short and empty rows keep their template heights."""
+    height = ws.row_dimensions[row_index].height or ws.sheet_format.defaultRowHeight
+    for col_index, value in enumerate(values[1:], start=2):
+        if not value:
+            continue
+        lines = _text_lines(ws, col_index, value)
+        if lines > 1:
+            cell = ws.cell(row_index, col_index)
+            alignment = copy(cell.alignment)
+            alignment.wrap_text = True
+            cell.alignment = alignment
+            height = max(height, lines * (cell.font.sz or 11) * 1.25 + 3)
+    ws.row_dimensions[row_index].height = min(409, height)
+
+
 def rebuild_weekly_sheet(ws, cards):
     blocks = weekly_region_blocks(ws)
     if not blocks:
         return False
+    original_merges = {str(merged) for merged in ws.merged_cells.ranges}
     block_styles = []
-    for start, end, label in blocks:
-        rows = [weekly_row_style(ws, row) for row in range(start, end + 1)]
-        block_styles.append({"label": label, "rows": rows})
-    sep_row = blocks[0][1] + 1
-    sep_style = weekly_row_style(ws, sep_row) if sep_row <= ws.max_row else None
+    for block_index, (start, end, label) in enumerate(blocks):
+        next_start = blocks[block_index + 1][0] if block_index + 1 < len(blocks) else ws.max_row + 1
+        block_styles.append({
+            "label": label,
+            "rows": [weekly_row_style(ws, row) for row in range(start, end + 1)],
+            "dimensions": [copy(ws.row_dimensions[row]) for row in range(start, end + 1)],
+            "separators": [(row, weekly_row_style(ws, row), copy(ws.row_dimensions[row]))
+                           for row in range(end + 1, next_start)],
+        })
     for merged in list(ws.merged_cells.ranges):
         if str(merged) != "A1:G1":
             ws.unmerge_cells(str(merged))
     if ws.max_row > 2:
         ws.delete_rows(3, ws.max_row - 2)
+    for row in list(ws.row_dimensions):
+        if row >= 3:
+            del ws.row_dimensions[row]
     row_index = 3
-    row_count = max(len(cards), max(len(block["rows"]) for block in block_styles))
-    for block_index, block in enumerate(block_styles):
+    for block in block_styles:
         start = row_index
+        row_count = max(len(cards), len(block["rows"]))
         end = start + row_count - 1
         for offset in range(row_count):
-            source_cells, source_height = block["rows"][min(offset, len(block["rows"]) - 1)]
+            source_index = min(offset, len(block["rows"]) - 1)
+            source_cells, _ = block["rows"][source_index]
+            dimension = copy(block["dimensions"][source_index])
+            dimension.index = row_index
+            ws.row_dimensions[row_index] = dimension
             values = weekly_row(cards[offset]) if offset < len(cards) else [""] * 7
             values[0] = block["label"] if offset == 0 else None
             values[1] = ""
             for col_index, value in enumerate(values, start=1):
                 copy_cell(source_cells[col_index - 1], ws.cell(row_index, col_index), value)
-                ws.cell(row_index, col_index).alignment = Alignment(
-                    horizontal="center",
-                    vertical="center",
-                    wrap_text=True,
-                )
-            ws.row_dimensions[row_index].height = row_height(ws, values) if offset < len(cards) else source_height
+            if offset < len(cards):
+                _fit_populated_row(ws, row_index, values)
             row_index += 1
         ws.merge_cells(start_row=start, start_column=1, end_row=end, end_column=1)
-        if block_index < len(block_styles) - 1:
-            if sep_style:
-                source_cells, source_height = sep_style
-                for col_index, source in enumerate(source_cells, start=1):
-                    copy_cell(source, ws.cell(row_index, col_index), None)
-                ws.row_dimensions[row_index].height = source_height
-            ws.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=7)
+        for source_row, (source_cells, _), source_dimension in block["separators"]:
+            dimension = copy(source_dimension)
+            dimension.index = row_index
+            ws.row_dimensions[row_index] = dimension
+            for col_index, source in enumerate(source_cells, start=1):
+                copy_cell(source, ws.cell(row_index, col_index), None)
+            if f"A{source_row}:G{source_row}" in original_merges:
+                ws.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=7)
             row_index += 1
     return True
 
 
 def build_weekly_excel(cards, cfg):
-    if load_workbook is None or Alignment is None:
+    if load_workbook is None:
         sys.exit("Missing Python package: openpyxl. Run with the bundled Codex Python.")
     log.info("Building weekly Excel (%d row(s)) -> %s", len(cards), cfg["output_weekly_excel"])
     wb = load_workbook(cfg["weekly_excel_template"])
@@ -108,61 +134,5 @@ def build_weekly_excel(cards, cfg):
     ws["C2"] = "CVE编号"
     ws["D2"] = "厂商"
     ws["E2"] = "影响产品"
-    style_weekly_sheet(ws, cards)
     wb.save(cfg["output_weekly_excel"])
     log.info("Weekly Excel saved: %s", cfg["output_weekly_excel"])
-
-
-def style_weekly_sheet(ws, cards):
-    """Keep regional review blocks while making the generated workbook readable."""
-    navy, grid = "17324D", "D9E1EA"
-    for column, width in zip("ABCDEFG", (18, 11, 24, 18, 27, 58, 12)):
-        ws.column_dimensions[column].width = width
-    ws.sheet_view.showGridLines = False
-    ws.sheet_view.zoomScale = 90
-    ws.freeze_panes = "C3"
-    ws.auto_filter.ref = f"A2:G{ws.max_row}"
-    ws.row_dimensions[1].height = 36
-    ws.row_dimensions[2].height = 29
-    ws["A1"].font = Font(name="Arial", size=16, bold=True, color="000000")
-    ws["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
-    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
-    border = Border(left=Side(style="thin", color=grid), right=Side(style="thin", color=grid), top=Side(style="thin", color=grid), bottom=Side(style="thin", color=grid))
-    for cell in ws[2]:
-        cell.font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
-        cell.fill = PatternFill(fill_type="solid", fgColor=navy)
-        cell.border = border
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    validation = DataValidation(type="list", formula1='"是,否,待确认"', allow_blank=True)
-    validation.errorTitle, validation.error = "请选择是否涉及", "选择是、否或待确认，也可保留空白。"
-    validation.showErrorMessage = True
-    ws.add_data_validation(validation)
-    colors = {"严重": ("FCE8E6", "9D211B"), "高危": ("FFF0DD", "9B4D00"), "中危": ("FFF8D6", "6E5C00"), "低危": ("EAF3EE", "32604B")}
-    for start, end, _ in weekly_region_blocks(ws):
-        validation.add(f"B{start}:B{end}")
-        for row_index in range(start, end + 1):
-            for cell in ws[row_index][:7]:
-                cell.font = Font(name="Arial", size=11, color="1F2937")
-                cell.fill = PatternFill(fill_type="solid", fgColor="F3F6FA" if (row_index - start) % 2 else "FFFFFF")
-                cell.border = border
-                cell.alignment = Alignment(horizontal="center" if cell.column in (2, 3, 7) else "left", vertical="center", wrap_text=True)
-            ws.cell(row_index, 2).fill = PatternFill(fill_type="solid", fgColor="FFF9E8")
-            level = ws.cell(row_index, 7)
-            if level.value in colors:
-                background, foreground = colors[level.value]
-                level.fill = PatternFill(fill_type="solid", fgColor=background)
-                level.font = Font(name="Arial", size=11, bold=True, color=foreground)
-            values = [None] + [ws.cell(row_index, col).value for col in range(2, 8)]
-            ws.row_dimensions[row_index].height = row_height(ws, values)
-        region = ws.cell(start, 1)
-        region.fill = PatternFill(fill_type="solid", fgColor="E7EEF5")
-        region.font = Font(name="Arial", size=11, bold=True, color=navy)
-        region.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    for merged in ws.merged_cells.ranges:
-        if merged.min_row == merged.max_row and merged.min_row > 2:
-            ws.row_dimensions[merged.min_row].height = 14
-    ws.print_title_rows = "1:2"
-    ws.print_area = f"A1:G{ws.max_row}"
-    ws.page_setup.orientation = "landscape"
-    ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
