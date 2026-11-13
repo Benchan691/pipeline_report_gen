@@ -153,7 +153,7 @@ class ReportAppearanceTests(unittest.TestCase):
             for lang in ("zh", "en"):
                 path, report = self.build_word(directory, [card], lang)
                 table = report.tables[0]
-                self.assertIn("CVE-2026-2000", table.rows[1].cells[1].text)
+                self.assertEqual(table.rows[1].cells[1].text, "CVE-2026-1000")
                 self.assertEqual(table.rows[1].cells[3].text, "Example")
                 self.assertEqual(table.rows[2].cells[3].text, "Example Server")
                 for version in card["affected_versions"]:
@@ -167,6 +167,39 @@ class ReportAppearanceTests(unittest.TestCase):
                     for name in source.namelist():
                         if name not in ("word/document.xml", "word/_rels/document.xml.rels"):
                             self.assertEqual(output.read(name), source.read(name), name)
+
+    def test_report_limits_preserve_record_counts_and_complete_evidence(self):
+        cards = [report_card(index) for index in range(13)]
+        expected_cves = [f"CVE-2026-{3000 + index}" for index in range(len(cards))]
+        references = [f"https://example.test/security/advisory-{index}/complete-details" for index in range(7)]
+        for card, primary in zip(cards, expected_cves):
+            card["cve_ids"] += ["CVE-2026-2000", primary]
+            card["cve_id"] = primary
+            card["references"] = [references[0], " " + references[0] + " ", *references[1:]]
+        original = deepcopy(cards)
+        with tempfile.TemporaryDirectory() as directory:
+            for lang in ("zh", "en"):
+                _, report = self.build_word(directory, cards, lang)
+                self.assertEqual(len(report.tables), len(cards))
+                for table, primary in zip(report.tables, expected_cves):
+                    self.assertEqual(table.rows[1].cells[1].text, primary)
+                    reference_text = table.rows[6].cells[0].text
+                    self.assertTrue(reference_text.endswith("\n".join(references[:5])))
+                    for url in references[5:]:
+                        self.assertNotIn(url, reference_text)
+                    self.assertTrue(table.rows[8].cells[0].text.endswith(f"https://nvd.nist.gov/vuln/detail/{primary}"))
+                    self.assertEqual(len(table.rows), 9)
+                    self.assertFalse(table.autofit)
+            _, sheet = self.build_excel(directory, cards)
+            self.assertEqual(len(weekly_region_blocks(sheet)), 5)
+            for start, end, _ in weekly_region_blocks(sheet):
+                self.assertEqual(end - start + 1, len(cards))
+                for offset, primary in enumerate(expected_cves):
+                    cell = sheet.cell(start + offset, 3)
+                    self.assertEqual(cell.value, primary)
+                    self.assertEqual(cell.font.sz, 12)
+                    self.assertEqual(cell.alignment.horizontal, "center")
+            self.assertEqual(cards, original)
 
     def assert_excel_settings(self, actual, template):
         self.assertEqual(
@@ -273,7 +306,7 @@ class ReportAppearanceTests(unittest.TestCase):
                         for col in range(2, 8):
                             self.assertEqual(sheet.cell(row, col)._style, template.cell(source_row, col)._style)
 
-    def test_excel_wraps_long_text_and_multiple_cves_without_changing_fonts_or_values(self):
+    def test_excel_wraps_long_text_and_displays_one_cve_without_changing_fonts(self):
         template = load_workbook(EXCEL_TEMPLATE).active
         cards = [report_card(index) for index in range(3)]
         cards[0]["cve_ids"].append("CVE-2026-2000")
@@ -282,11 +315,11 @@ class ReportAppearanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             _, sheet = self.build_excel(directory, cards)
             for start, _, _ in weekly_region_blocks(sheet):
-                self.assertEqual(sheet.cell(start, 3).value, "CVE-2026-1000\nCVE-2026-2000")
-                self.assertTrue(sheet.cell(start, 3).alignment.wrap_text)
+                self.assertEqual(sheet.cell(start, 3).value, "CVE-2026-1000")
+                self.assertEqual(sheet.row_dimensions[start].height, template.row_dimensions[start].height)
                 self.assertTrue(sheet.cell(start + 1, 6).alignment.wrap_text)
+                self.assertGreater(sheet.row_dimensions[start + 1].height, template.row_dimensions[start + 1].height)
                 for row in (start, start + 1):
-                    self.assertGreater(sheet.row_dimensions[row].height, template.row_dimensions[row].height)
                     self.assertEqual(copy(sheet.cell(row, 6).font), copy(template.cell(row, 6).font))
                 self.assertEqual(sheet.cell(start + 1, 6).value, cards[1]["title"]["zh"])
                 self.assertEqual(sheet.cell(start + 2, 6).value, "=SUM(1,2)")

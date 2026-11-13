@@ -189,9 +189,9 @@ class NewsProviderTests(unittest.TestCase):
                 candidate = candidate_from_news_doc(document(provider, {"products": ["Product"], "vendor": "Vendor"}, cve_ids=["CVE-2026-1234", "CVE-2026-5678"]))
                 card = merge_cards([candidate], [])[0]
                 rows = word_rows(card, "en")
-                self.assertEqual(rows[1], ("CVE number", "CVE-2026-1234\nCVE-2026-5678", "Vendor", "Vendor"))
+                self.assertEqual(rows[1], ("CVE number", "CVE-2026-1234", "Vendor", "Vendor"))
                 self.assertEqual(rows[2][3], "Product")
-                self.assertEqual(weekly_row(card)[2:5], ["CVE-2026-1234\nCVE-2026-5678", "Vendor", "Product"])
+                self.assertEqual(weekly_row(card)[2:5], ["CVE-2026-1234", "Vendor", "Product"])
         card = merge_cards([candidate_from_news_doc(document("zimbra", {}))], [])[0]
         self.assertEqual(weekly_row(card)[2:5], ["-", "-", "Zimbra"])
 

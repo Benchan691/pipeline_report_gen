@@ -32,7 +32,7 @@ class ReportIdentityTests(unittest.TestCase):
             enrich_report_identities(cards, cfg)
             self.assertEqual(ai.call_count, 2)
         for card, source in zip(cards, original):
-            self.assertEqual(weekly_row(card)[2:5], ["CVE-2026-1\nCVE-2026-2", "Microsoft", "Microsoft Office"])
+            self.assertEqual(weekly_row(card)[2:5], ["CVE-2026-1", "Microsoft", "Microsoft Office"])
             self.assertEqual(card["affected_versions"], source["affected_versions"])
             self.assertEqual(card["vendors"], source["vendors"])
             self.assertEqual(card["report_identity"]["method"], "ai")

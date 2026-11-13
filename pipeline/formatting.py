@@ -30,7 +30,8 @@ def format_severity(value, lang):
 
 
 def link_for(card):
-    return f"https://nvd.nist.gov/vuln/detail/{card['cve_id']}" if card.get("cve_id") else (card.get("references") or ["-"])[0]
+    cve = cve_text(card)
+    return f"https://nvd.nist.gov/vuln/detail/{cve}" if cve != "-" else (card.get("references") or ["-"])[0]
 
 
 def category(card):
@@ -61,7 +62,11 @@ def vendor_text(card):
 
 
 def cve_text(card):
-    return val(card.get("cve_ids") or doc_cve_ids(card.get("doc") or {}) or card.get("cve_id"))
+    for source in ({"cve_id": card.get("cve_id")}, {"cve_ids": card.get("cve_ids")}, card.get("doc") or {}):
+        ids = doc_cve_ids(source)
+        if ids:
+            return ids[0]
+    return "-"
 
 
 def asset_text(card):
@@ -83,7 +88,7 @@ def word_rows(card, lang):
         (labels["threat"], format_severity(card.get("severity") or card_raw(card).get("severity"), lang), labels["date"], val(display_date(card_date(card)))),
         (labels["hazard"] + hazard,),
         (labels["scope"] + val(card.get("affected_versions") or card.get("affected_products") or products),),
-        (labels["ref"] + val(unique(card.get("references") or [])),),
+        (labels["ref"] + val(unique(card.get("references") or [])[:5]),),
         (labels["patch"] + val(localized(card, "how_to_respond", lang)),),
         (labels["link"] + link_for(card),),
     ]
